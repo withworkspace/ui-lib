@@ -1,0 +1,51 @@
+name: Release
+
+# A v* tag publishes the package to npm, as the version package.json says,
+# by trusted publishing: npm trusts this workflow in this repo, and no
+# token is stored anywhere. A pull request that changes this file runs
+# everything but the publish, to try it.
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths: [".github/workflows/release.yml"]
+
+permissions:
+  contents: read
+  id-token: write          # trusted publishing: npm takes the run's OIDC token
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest  # trusted publishing needs GitHub's own runners
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - run: npm install -g npm@^11.5.1   # trusted publishing needs 11.5.1 or later
+
+      - run: npm ci
+
+      - run: npm test
+
+      - run: npm run build
+
+      - name: Check the tag is the version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "the tag is $GITHUB_REF_NAME, and package.json says $version: tag it v$version, or change package.json"
+            exit 1
+          fi
+
+      - name: Publish
+        run: |
+          case "$GITHUB_REF" in
+            refs/tags/*-*) npm publish --tag next ;;    # v0.2.0-rc.1: a prerelease, not latest
+            refs/tags/*)   npm publish ;;
+            *)             npm publish --dry-run ;;
+          esac
