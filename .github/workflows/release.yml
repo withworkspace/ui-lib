@@ -1,9 +1,11 @@
 name: Release
 
-# A v* tag publishes the package to npm, as the version package.json says,
+# A v* tag stages the package on npm, as the version package.json says,
 # by trusted publishing: npm trusts this workflow in this repo, and no
-# token is stored anywhere. A pull request that changes this file runs
-# everything but the publish, to try it.
+# token is stored anywhere. npm lets this workflow stage a version and
+# not publish one: a staged version isn't public until a maintainer
+# approves it, with `npm stage approve <stage-id>` and their 2FA. A pull
+# request that changes this file runs everything but the staging, to try it.
 on:
   push:
     tags: ["v*"]
@@ -25,7 +27,7 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
 
-      - run: npm install -g npm@^11.5.1   # trusted publishing needs 11.5.1 or later
+      - run: npm install -g npm@^11.15.0   # npm stage needs 11.15.0 or later
 
       - run: npm ci
 
@@ -42,10 +44,11 @@ jobs:
             exit 1
           fi
 
+      # It prints the stage's id, which `npm stage approve` takes.
       - name: Publish
         run: |
           case "$GITHUB_REF" in
-            refs/tags/*-*) npm publish --tag next ;;    # v0.2.0-rc.1: a prerelease, not latest
-            refs/tags/*)   npm publish ;;
-            *)             npm publish --dry-run ;;
+            refs/tags/*-*) npm stage publish --tag next ;;    # v0.2.0-rc.1: a prerelease, not latest
+            refs/tags/*)   npm stage publish ;;
+            *)             npm stage publish --dry-run ;;
           esac
