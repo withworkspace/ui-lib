@@ -221,6 +221,18 @@ describe("from ws", () => {
     expect(count).toBe(2);
   });
 
+  test("ws:outside runs onOutside: a press in ws, outside the frame", async () => {
+    const { host, ws } = await connected();
+    let count = 0;
+    const twice = new Promise<void>((resolve) => ws.onOutside(() => ++count === 2 && resolve()));
+
+    host.outside();
+    host.outside();
+
+    await twice;
+    expect(count).toBe(2);
+  });
+
   test("ws:theme runs onTheme with the theme, and the theme follows", async () => {
     const { host, ws } = await connected({ scheme: "light" });
     const light = ws.theme.vars["--ws-bg"];

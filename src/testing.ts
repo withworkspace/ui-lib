@@ -89,7 +89,6 @@ export interface FakeHost {
    * navigate() and each ws:go into the plugin.
    */
   readonly path: string;
-
   /**
    * next resolves with the next message of this type from the page that no
    * earlier next() was given, whether it has arrived already or is still
@@ -115,6 +114,8 @@ export interface FakeHost {
    * Given a finder, that's what the host finds from then on.
    */
   refsChanged(refs?: FindRefs): void;
+  /** outside sends ws:outside: a press landed in ws, outside the frame. */
+  outside(): void;
   /**
    * send sends anything at all on the port: a message from a later
    * release, say, to show the page drops it.
@@ -130,7 +131,7 @@ const colours: Record<V1.Scheme, Record<string, string>> = {
     line: "#e4e4e8", "line-strong": "#c9c9d1", hover: "#f0f0f3", well: "#f3f3f5", "code-bg": "#f3f3f5",
     accent: "#6e509c", "accent-soft": "#efeaf6", "accent-line": "#cdbfe3",
     primary: "#6e509c", "primary-hover": "#5d4287", "on-primary": "#ffffff",
-    danger: "#c0362c", warn: "#a86a00", ok: "#2e7d4f",
+    danger: "#c0362c", warn: "#a86a00", ok: "#2e7d4f", scrim: "rgb(20 20 28 / 0.32)",
     shadow: "0 1px 3px rgb(0 0 0 / 0.12)",
   },
   dark: {
@@ -138,7 +139,7 @@ const colours: Record<V1.Scheme, Record<string, string>> = {
     line: "#2e2e35", "line-strong": "#43434c", hover: "#26262c", well: "#121215", "code-bg": "#1f1f24",
     accent: "#a08ad0", "accent-soft": "#2a2438", "accent-line": "#4a3f66",
     primary: "#a08ad0", "primary-hover": "#b29fdc", "on-primary": "#16161a",
-    danger: "#f0776c", warn: "#e0a84a", ok: "#6cc490",
+    danger: "#f0776c", warn: "#e0a84a", ok: "#6cc490", scrim: "rgb(0 0 0 / 0.55)",
     shadow: "0 1px 3px rgb(0 0 0 / 0.5)",
   },
 };
@@ -281,6 +282,9 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
     refsChanged(find) {
       if (find) refs = find;
       say({ type: "ws:refs-changed" });
+    },
+    outside() {
+      say({ type: "ws:outside" });
     },
     send: post,
     close() {

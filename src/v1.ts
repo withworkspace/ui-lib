@@ -200,10 +200,19 @@ export interface RefsChanged {
   type: "ws:refs-changed";
 }
 
+/**
+ * A press landed in ws, outside the frame: on the sidebar, say. A page
+ * never sees such a press itself, so whatever it closes on a press
+ * elsewhere (a menu, a dialog) closes on this too.
+ */
+export interface Outside {
+  type: "ws:outside";
+}
+
 /** What a page sends on the port. */
 export type PageMessage = Go | Title | Key | Refs;
 /** What ws sends on the port. */
-export type HostMessage = Welcome | Refuse | Navigate | ThemeChanged | Changed | RefsFound | RefsChanged;
+export type HostMessage = Welcome | Refuse | Navigate | ThemeChanged | Changed | RefsFound | RefsChanged | Outside;
 
 // The guards check a message's shape: that it's one of this version's,
 // with each field it must have. A message that fails is dropped, which is
@@ -283,6 +292,8 @@ export function isHostMessage(m: unknown): m is HostMessage {
     case "ws:refs-found":
       return isIndex(m.id) && Array.isArray(m.found) && m.found.every((of) => Array.isArray(of) && of.every(isFoundRef));
     case "ws:refs-changed":
+      return true;
+    case "ws:outside":
       return true;
     default:
       return false;

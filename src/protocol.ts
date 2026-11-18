@@ -21,6 +21,8 @@ export const TOKENS = [
   // Colour: the page, what's on it, and what marks it.
   "bg", "panel", "raised", "fg", "dim", "faint", "line", "line-strong", "hover", "well", "code-bg",
   "accent", "accent-soft", "accent-line", "primary", "primary-hover", "on-primary", "danger", "warn", "ok",
+  // What dims a page behind a dialog: the shell's backdrop is drawn in it.
+  "scrim",
   // Type.
   "font", "mono", "text-xs", "text-sm", "text-md", "text-lg", "text-xl", "text-2xl",
   // Space, corners and depth.
