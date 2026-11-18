@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { type Theme, connect } from "../src/index.js";
-import { fakeHost } from "../src/testing.js";
+import { fakeHost, named } from "../src/testing.js";
 import { closing, settled } from "./page.js";
 
 async function connected(options: Parameters<typeof fakeHost>[0] = {}) {
@@ -89,6 +89,101 @@ describe("from the page", () => {
   test("next says so when the page sends nothing", async () => {
     const { host } = await connected();
     await expect(host.next("ws:go", { timeout: 20 })).rejects.toThrow("The page sent no ws:go within 20ms.");
+  });
+});
+
+describe("refs", () => {
+  const issues = named({ "PROJ-12": "/x/jira/browse/PROJ-12", "PROJ-7": { href: "https://jira.example/browse/PROJ-7", kind: "thing", ref: "seven" } });
+
+  test("findRefs asks ws, and resolves with what it found in each text", async () => {
+    const { host, ws } = await connected({ refs: issues });
+
+    const found = await ws.findRefs(["See PROJ-12 for more", "nothing here", "PROJ-7"]);
+
+    expect(await host.next("ws:refs")).toEqual({ type: "ws:refs", id: 1, texts: ["See PROJ-12 for more", "nothing here", "PROJ-7"] });
+    expect(found).toEqual([
+      [{ from: 4, to: 11, ref: "PROJ-12", kind: "thing", href: "/x/jira/browse/PROJ-12" }],
+      [],
+      [{ from: 0, to: 6, ref: "seven", kind: "thing", href: "https://jira.example/browse/PROJ-7" }],
+    ]);
+  });
+
+  test("askings made together go to ws as one, and each gets its own answer", async () => {
+    const { host, ws } = await connected({ refs: issues });
+
+    const [rows, title, none] = await Promise.all([ws.findRefs(["PROJ-12 first", "then PROJ-7"]), ws.findRefs(["About PROJ-12"]), ws.findRefs([])]);
+    await settled(ws, host);
+
+    expect(host.sent.filter((m) => m.type === "ws:refs")).toEqual([{ type: "ws:refs", id: 1, texts: ["PROJ-12 first", "then PROJ-7", "About PROJ-12"] }]);
+    expect(rows.map((of) => of.map((f) => f.from))).toEqual([[0], [5]]);
+    expect(title.map((of) => of.map((f) => f.from))).toEqual([[6]]);
+    expect(none).toEqual([]);
+  });
+
+  test("a later asking is another message, with the next id", async () => {
+    const { host, ws } = await connected({ refs: issues });
+
+    await ws.findRefs(["PROJ-12"]);
+    await ws.findRefs(["PROJ-7"]);
+
+    expect((await host.next("ws:refs")).id).toBe(1);
+    expect((await host.next("ws:refs")).id).toBe(2);
+  });
+
+  test("a ws from before it could be asked isn't asked, and nothing is found", async () => {
+    const { host, ws } = await connected({ refs: false });
+
+    expect(await ws.findRefs(["See PROJ-12 for more", "PROJ-7"])).toEqual([[], []]);
+    await settled(ws, host);
+
+    expect(host.sent.filter((m) => m.type === "ws:refs")).toEqual([]);
+  });
+
+  test("a host that finds nothing answers with nothing for each text", async () => {
+    const { ws } = await connected();
+    expect(await ws.findRefs(["See PROJ-12 for more", "PROJ-7"])).toEqual([[], []]);
+  });
+
+  test("ws:refs-changed runs onRefsChanged, and asking again gets what's found now", async () => {
+    const { host, ws } = await connected({ refs: named({}) });
+    expect(await ws.findRefs(["About PROJ-12"])).toEqual([[]]);
+    const changed = new Promise<void>((resolve) => ws.onRefsChanged(resolve));
+
+    host.refsChanged(issues);
+
+    await changed;
+    expect((await ws.findRefs(["About PROJ-12"]))[0]).toHaveLength(1);
+  });
+
+  test("an answer that isn't as protocol 1 has it is dropped, and one for no asking does nothing", async () => {
+    const { host, ws } = await connected({ refs: issues });
+    const changed = new Promise<void>((resolve) => ws.onChanged(resolve));
+
+    host.send({ type: "ws:refs-found", id: 9, found: [[{ from: 0, to: 4, ref: "x", kind: "thing", href: "/" }]] });
+    host.send({ type: "ws:refs-found", id: 1, found: "PROJ-12" });
+    host.changed();
+    await changed;
+
+    expect(await ws.findRefs(["PROJ-12"])).toEqual([[{ from: 0, to: 7, ref: "PROJ-12", kind: "thing", href: "/x/jira/browse/PROJ-12" }]]);
+  });
+
+  test("closing settles what's still asked for with nothing found, and what's asked after it", async () => {
+    const { ws } = await connected({ refs: issues });
+
+    const asked = ws.findRefs(["PROJ-12"]);
+    ws.close();
+
+    expect(await asked).toEqual([[]]);
+    expect(await ws.findRefs(["PROJ-12"])).toEqual([[]]);
+  });
+
+  test("named finds whole names only, none over another", () => {
+    const find = named({ PROJ: "/p", "PROJ-1": "/1", "PROJ-12": "/12" });
+    expect(find("PROJ-12, PROJ-1 and PROJ; not PROJ-123, xPROJ-1 or docs/PROJ-1.md").map((f) => [f.from, f.to, f.href])).toEqual([
+      [0, 7, "/12"],
+      [9, 15, "/1"],
+      [20, 24, "/p"],
+    ]);
   });
 });
 

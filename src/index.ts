@@ -3,4 +3,4 @@
 // against is under /testing.
 
 export { connect, NoHostError, ProtocolError } from "./client.js";
-export type { Client, ConnectOptions, HostWindow, Theme } from "./client.js";
+export type { Client, ConnectOptions, FoundRef, HostWindow, Theme } from "./client.js";

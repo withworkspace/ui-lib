@@ -1,8 +1,9 @@
 // A fake host: ws, without ws. It answers a page's ws:connect as ws web
 // does, from the same types, and lets a test say what ws would (a move, a
 // theme, a change) and see what the page said. Like ws, it follows a
-// ws:go into the plugin with a ws:navigate. It needs no DOM: it runs on
-// a MessageChannel, which Node has.
+// ws:go into the plugin with a ws:navigate, and answers a ws:refs with
+// what it's been told to find. It needs no DOM: it runs on a
+// MessageChannel, which Node has.
 
 import { type Connect, type Refuse, TOKENS, type Token, V1, chooseVersion, isConnect } from "./protocol.js";
 
@@ -26,6 +27,46 @@ export interface FakeHostOptions {
   keys?: V1.Keys;
   /** ws's version, as the welcome says it. */
   ws?: string;
+  /**
+   * What the host finds in a run of text, as ws finds its names: named()
+   * makes one from some names. By default it finds nothing. false is a ws
+   * from before it could be asked: its welcome doesn't say it finds
+   * names, and a ws:refs gets no answer.
+   */
+  refs?: FindRefs | false;
+}
+
+/** FindRefs is the refs in a run of text, in order, none over another. */
+export type FindRefs = (text: string) => V1.FoundRef[];
+
+/**
+ * named is a finder for the fake host that finds these names wherever
+ * they're whole words, each going where it's said to:
+ *
+ *   fakeHost({ refs: named({ "PROJ-1": "/x/jira/browse/PROJ-1" }) })
+ *
+ * A name's kind is "thing" unless it says another, and its ref is its
+ * name.
+ */
+export function named(names: Record<string, string | (Partial<Omit<V1.FoundRef, "from" | "to">> & { href: string })>): FindRefs {
+  // As ws: a name isn't part of a longer word, a path or an address, and
+  // a sentence's full stop after it is no part of it.
+  const before = /[\w/.#-]/;
+  const after = /[\w/#-]/;
+  return (text) => {
+    const found: V1.FoundRef[] = [];
+    for (const [name, to] of Object.entries(names)) {
+      if (!name) continue;
+      const how = typeof to === "string" ? { href: to } : to;
+      for (let at = text.indexOf(name); at >= 0; at = text.indexOf(name, at + name.length)) {
+        const end = at + name.length;
+        if ((at > 0 && before.test(text[at - 1]!)) || (end < text.length && after.test(text[end]!))) continue;
+        found.push({ ref: name, kind: "thing", ...how, from: at, to: end });
+      }
+    }
+    found.sort((a, b) => a.from - b.from || b.to - a.to);
+    return found.filter((f, i) => i === 0 || f.from >= found[i - 1]!.to);
+  };
 }
 
 /** Some custom properties' values, by name: { "--ws-accent": "#f0f" }. */
@@ -69,6 +110,11 @@ export interface FakeHost {
   theme(theme?: { scheme?: V1.Scheme; vars?: SomeVars }): void;
   /** changed sends ws:changed: the plugin said view/changed. */
   changed(): void;
+  /**
+   * refsChanged sends ws:refs-changed: what there is to name changed.
+   * Given a finder, that's what the host finds from then on.
+   */
+  refsChanged(refs?: FindRefs): void;
   /**
    * send sends anything at all on the port: a message from a later
    * release, say, to show the page drops it.
@@ -124,6 +170,7 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
   const keys = options.keys ?? { chords: ["k", "p"], bare: ["?", "g"], leaders: ["g"], within: 900 };
   let path = options.path ?? "/";
   let theme: V1.Theme = { scheme: options.scheme ?? "light", vars: { ...plausible(options.scheme ?? "light"), ...options.vars } };
+  let refs: FindRefs | false = options.refs ?? (() => []);
 
   const connects: Connect[] = [];
   const sent: V1.PageMessage[] = [];
@@ -149,6 +196,8 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
       if (!path.startsWith("/")) path = `/${path}`;
       say({ type: "ws:navigate", path });
     }
+    // As ws: each text's refs, in the texts' order.
+    if (m.type === "ws:refs" && refs) say({ type: "ws:refs-found", id: m.id, found: m.texts.map(refs) });
     const i = waiting.findIndex((w) => w.type === m.type);
     if (i < 0) unread.push(m);
     else waiting.splice(i, 1)[0]!.give(m);
@@ -185,6 +234,7 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
         path,
         theme,
         keys,
+        ...(refs ? { refs: true } : {}),
       });
     },
   };
@@ -227,6 +277,10 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
     },
     changed() {
       say({ type: "ws:changed" });
+    },
+    refsChanged(find) {
+      if (find) refs = find;
+      say({ type: "ws:refs-changed" });
     },
     send: post,
     close() {

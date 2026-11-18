@@ -17,6 +17,8 @@ const welcome = {
   theme: { scheme: "dark", vars },
   keys: { chords: ["k", "p"], bare: ["?", "g"], leaders: ["g"], within: 900 },
 } satisfies V1.Welcome satisfies V1.HostMessage;
+// A ref as ws found it: PROJ-12 in "See PROJ-12 for more".
+const found = { from: 4, to: 11, ref: '{"kind":"thing","plugin":"jira","what":"issue","id":"PROJ-12"}', kind: "thing", href: "/x/jira/browse/PROJ-12" } satisfies V1.FoundRef;
 const refuse = { type: "ws:refuse", versions: [1], message: "jira speaks frame protocol 2, and this ws speaks 1. Update ws." } satisfies Refuse satisfies V1.Refuse satisfies V1.HostMessage;
 const fromPage = [
   { type: "ws:go", path: "/x/jira/browse/PROJ-2" } satisfies V1.Go,
@@ -24,6 +26,7 @@ const fromPage = [
   { type: "ws:go", path: "/missions/token-cache" } satisfies V1.Go,
   { type: "ws:title", title: "PROJ-2 Token cache" } satisfies V1.Title,
   { type: "ws:key", key: "k", meta: true, ctrl: false, shift: false, alt: false } satisfies V1.Key,
+  { type: "ws:refs", id: 1, texts: ["See PROJ-12 for more", "demo is a repo"] } satisfies V1.Refs,
 ] satisfies V1.PageMessage[];
 const fromHost = [
   welcome,
@@ -31,6 +34,8 @@ const fromHost = [
   { type: "ws:navigate", path: "/board" } satisfies V1.Navigate,
   { type: "ws:theme", scheme: "light", vars } satisfies V1.ThemeChanged,
   { type: "ws:changed" } satisfies V1.Changed,
+  { type: "ws:refs-found", id: 1, found: [[found], [{ from: 0, to: 4, ref: '{"kind":"repo","repo":"demo"}', kind: "repo", href: "/files/demo", shape: "pill", accent: "#6e509c" }]] } satisfies V1.RefsFound,
+  { type: "ws:refs-changed" } satisfies V1.RefsChanged,
 ] satisfies V1.HostMessage[];
 // The other names /protocol has for a page and ws to use.
 const _names: [ProtocolVersion, Token, TokenVar, V1.Scheme, V1.Theme, V1.Keys, V1.Plugin] = [1, "bg", "--ws-bg", "dark", welcome.theme, welcome.keys, welcome.plugin];
@@ -39,7 +44,7 @@ void _names;
 describe("/protocol", () => {
   test("exports protocol 1's versions, tokens, guards and V1, and nothing that runs", () => {
     expect(Object.keys(protocol).sort()).toEqual(["PROTOCOL_VERSIONS", "TOKENS", "V1", "chooseVersion", "isConnect", "isRefuse"]);
-    expect(Object.keys(V1).sort()).toEqual(["isHostMessage", "isPageMessage", "isWelcome"]);
+    expect(Object.keys(V1).sort()).toEqual(["isFoundRef", "isHostMessage", "isPageMessage", "isWelcome"]);
     expect(PROTOCOL_VERSIONS).toEqual([1]);
   });
 
@@ -97,6 +102,24 @@ describe("the guards", () => {
     expect(V1.isWelcome({ ...welcome, plugin: { name: "jira" } })).toBe(false);
   });
 
+  test("V1.isWelcome takes a welcome that says ws finds names, and one from before it did", () => {
+    expect(V1.isWelcome({ ...welcome, refs: true })).toBe(true);
+    expect(V1.isWelcome({ ...welcome, refs: false })).toBe(true);
+    expect(V1.isWelcome({ ...welcome, refs: "yes" })).toBe(false);
+  });
+
+  test("V1.isFoundRef takes a ref with where it is, what it is and where it goes", () => {
+    expect(V1.isFoundRef(found)).toBe(true);
+    expect(V1.isFoundRef({ ...found, shape: "pill", accent: "#6e509c" })).toBe(true);
+    expect(V1.isFoundRef({ ...found, later: true })).toBe(true);
+    expect(V1.isFoundRef({ ...found, from: 11 })).toBe(false); // nothing's between 11 and 11
+    expect(V1.isFoundRef({ ...found, from: -1 })).toBe(false);
+    expect(V1.isFoundRef({ ...found, to: 11.5 })).toBe(false);
+    expect(V1.isFoundRef({ ...found, href: undefined })).toBe(false);
+    expect(V1.isFoundRef({ ...found, ref: { kind: "thing" } })).toBe(false); // ws's word for it is a string
+    expect(V1.isFoundRef({ ...found, shape: 1 })).toBe(false);
+  });
+
   test("V1.isPageMessage takes each message a page sends, and drops the rest", () => {
     for (const m of fromPage) expect(V1.isPageMessage(m), m.type).toBe(true);
     for (const m of fromHost) expect(V1.isPageMessage(m), m.type).toBe(false);
@@ -107,6 +130,8 @@ describe("the guards", () => {
     expect(V1.isPageMessage({ type: "ws:title", title: 3 })).toBe(false);
     expect(V1.isPageMessage({ type: "ws:key", key: "k" })).toBe(false);
     expect(V1.isPageMessage({ type: "ws:room", width: 900 })).toBe(false);
+    expect(V1.isPageMessage({ type: "ws:refs", texts: ["PROJ-12"] })).toBe(false);
+    expect(V1.isPageMessage({ type: "ws:refs", id: 1, texts: "PROJ-12" })).toBe(false);
     expect(V1.isPageMessage(undefined)).toBe(false);
   });
 
@@ -116,6 +141,9 @@ describe("the guards", () => {
     expect(V1.isHostMessage({ type: "ws:navigate" })).toBe(false);
     expect(V1.isHostMessage({ type: "ws:theme", scheme: "dark" })).toBe(false);
     expect(V1.isHostMessage({ type: "ws:later" })).toBe(false);
+    expect(V1.isHostMessage({ type: "ws:refs-found", id: 1, found: [found] })).toBe(false); // a list for each text
+    expect(V1.isHostMessage({ type: "ws:refs-found", id: 1, found: [[{ ...found, kind: undefined }]] })).toBe(false);
+    expect(V1.isHostMessage({ type: "ws:refs-found", found: [] })).toBe(false);
   });
 
   test("a message with a field its version doesn't know is still that message", () => {
