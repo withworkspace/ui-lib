@@ -53,6 +53,9 @@ What it's given back:
 | `ws.onNavigate(fn)` | ws's address moved within the plugin: a link clicked in the app, a `go`, the sidebar, back and forward. `fn` is given the path, and the app shows it. |
 | `ws.onChanged(fn)` | The plugin said what the app shows is stale (`p.Changed()` in the Go framework) |
 | `ws.onTheme(fn)` | The theme changed. It's applied before `fn` runs, so this is only for an app that draws with the values itself. |
+| `ws.markRefs(element)` | Draw ws's names in an element's words: `PROJ-12`, a file, a mission, each a link to where it goes ([Refs](#refs)) |
+| `ws.findRefs(texts)` | Ask ws which of its names are in some runs of text, to draw them yourself. It resolves with the refs in each. |
+| `ws.onRefsChanged(fn)` | What there is to name changed: what `findRefs` found may be different now |
 | `ws.go(path, { replace })` | Ask ws to go to this path in the plugin: `ws.go("/browse/PROJ-2")`. ws adds it to its history (or, with `replace`, puts it in place of the entry it's on) and `onNavigate` follows. |
 | `ws.setTitle(title)` | The page's title, for the tab |
 | `ws.open(address)` | Ask ws to go to an address of its own: `ws.open("/missions/token-cache")` |
@@ -62,7 +65,7 @@ Each `on…` returns a function that stops it.
 
 ### What it does to the page
 
-Three things, and nothing more:
+Three things, and nothing more unless it's asked (`markRefs` changes the element it's given):
 
 - **The theme.** ws's shell has the theme's tokens in a `<style>` before the app loads, as `--ws-bg`, `--ws-fg`, `--ws-accent` and [the rest](PROTOCOL.md#the-tokens). When the theme changes in ws, the client sets the new values on `<html>`, so CSS that uses `var(--ws-…)` follows by itself.
 - **Keys.** The keys ws owns (the palette on ⌘K, say) are passed on to ws when they're pressed in the frame. Which keys those are comes from ws in the handshake, not from this package.
@@ -93,6 +96,48 @@ function usePath(ws: Client): string {
   return path;
 }
 ```
+
+### Refs
+
+ws draws the names in what it shows as somewhere to go: a file (`demo/main.go:12`), a pull request (`demo#12`), a mission, a plugin's thing by the name its plugin registered (`PROJ-12`). An app's own text can have them too. Which words are names is ws's to say, since only ws knows what there is to name: the app asks, over the port, and draws what it's told.
+
+For words the app owns outright, such as a description's HTML:
+
+```ts
+description.innerHTML = issue.descriptionHtml;
+const stop = ws.markRefs(description);
+```
+
+Each name becomes a link where it stands (`<a class="ws-ref">`, which ws's shell styles as a ref looks in ws), and a click goes there, as with any link. Words in a link, a heading or a block of code are left, and inline code is a name only when all of it is one. The marks follow what there is to name: a mission that begins later is marked when it does. After putting other words in the element, mark it again; `stop()` makes the names words again.
+
+`markRefs` changes the DOM under the element, so it isn't for what a framework renders and will render again. There, ask, and render the links yourself:
+
+```tsx
+function Words({ ws, text }: { ws: Client; text: string }) {
+  const [found, setFound] = useState<FoundRef[]>([]);
+  useEffect(() => {
+    let on = true;
+    const ask = () => void ws.findRefs([text]).then(([refs]) => on && setFound(refs ?? []));
+    ask();
+    const stop = ws.onRefsChanged(ask);
+    return () => ((on = false), stop());
+  }, [ws, text]);
+  const out = [];
+  let at = 0;
+  for (const f of found) {
+    out.push(text.slice(at, f.from));
+    out.push(
+      <a class="ws-ref" href={f.href} data-ws-ref={f.ref} data-ws-kind={f.kind} data-ws-shape={f.shape} style={f.accent && { "--ws-ref-accent": f.accent }}>
+        {text.slice(f.from, f.to)}
+      </a>,
+    );
+    at = f.to;
+  }
+  return <>{[...out, text.slice(at)]}</>;
+}
+```
+
+Askings made together go to ws as one message, so a list whose rows each ask costs one. In a ws from before it found names for a page, nothing is found, and the words stay words. [`PROTOCOL.md`](PROTOCOL.md#refs) has what a ref is given as.
 
 ### When it can't connect
 
@@ -128,6 +173,7 @@ const ws = await connect({ host: host.window, document });
 host.navigate("/board");             // ws:navigate
 host.theme({ scheme: "light" });     // ws:theme, with every token
 host.changed();                      // ws:changed
+host.refsChanged();                  // ws:refs-changed
 
 await host.next("ws:title");         // the next ws:title from the page
 host.sent;                           // everything the page has sent
@@ -151,6 +197,17 @@ host.close();
 | `keys` | The keys ws owns | ws's own |
 | `versions` | The frame protocol versions the host says it speaks | `[1]` |
 | `silent` | Never answer | `false` |
+| `refs` | What the host finds in a run of text, as ws finds its names. `false` is a ws from before it could be asked. | Nothing |
+
+`named()` makes a finder from some names, each with where it goes. It finds them wherever they're whole words:
+
+```ts
+import { fakeHost, named } from "@withworkspace/ui-lib/testing";
+
+const host = fakeHost({ refs: named({ "PROJ-12": "/x/jira/browse/PROJ-12" }) });
+
+host.refsChanged(named({ "PROJ-13": "/x/jira/browse/PROJ-13" }));   // what it finds from now on
+```
 
 The two ways a handshake fails:
 

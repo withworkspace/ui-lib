@@ -2,8 +2,10 @@
 // gives the app a Client over the port. What it wires into the page is
 // small, and each part is something ws said in the welcome: the theme on
 // <html>, the keys ws owns passed on, and links clicked handed to ws. ws
-// keeps the history: the frame never adds to it.
+// keeps the history: the frame never adds to it. Which words are ws's
+// names is ws's to say too: the app asks, and draws what it's told.
 
+import { mark } from "./mark.js";
 import { PROTOCOL_VERSIONS, type Connect, type ProtocolVersion, V1, isRefuse } from "./protocol.js";
 import { isRecord } from "./shape.js";
 import { VERSION } from "./version.js";
@@ -61,6 +63,8 @@ export interface ConnectOptions {
 }
 
 export type Theme = V1.Theme;
+/** One of ws's names in a run of text, as ws found it. */
+export type FoundRef = V1.FoundRef;
 
 /** Client is the app's handle on ws, once they've shaken hands. */
 export interface Client {
@@ -107,6 +111,34 @@ export interface Client {
    * that draws with the values itself, on a canvas say.
    */
   onTheme(fn: (theme: Theme) => void): () => void;
+
+  /**
+   * findRefs asks ws which of its names are in some runs of text: a file,
+   * a pull request, a mission, a plugin's thing (PROJ-12). It resolves
+   * with the refs in each text, in the texts' order: where each is, where
+   * it goes and how it's drawn. ws finds only what's there to name, so
+   * the answer can change (onRefsChanged). Askings made together go to ws
+   * as one. In a ws from before it could be asked, nothing is found.
+   */
+  findRefs(texts: readonly string[]): Promise<FoundRef[][]>;
+  /**
+   * onRefsChanged runs fn when what there is to name changed: what
+   * findRefs found may be different now, and an app that drew from it
+   * asks again.
+   */
+  onRefsChanged(fn: () => void): () => void;
+  /**
+   * markRefs draws ws's names in an element's words: each is put in a
+   * link (a.ws-ref, which ws's shell styles) where it stands, and a click
+   * goes there. Words in a link, a heading or a block of code are left,
+   * and inline code is a name only when all of it is one. The marks are
+   * kept right as what there is to name changes. It's for words the app
+   * owns outright (a description's HTML, set as innerHTML), not for what a
+   * framework renders and will render again: draw those from findRefs.
+   * After putting other words in the element, mark it again. It returns
+   * a function that stops it and makes the names words again.
+   */
+  markRefs(element: Element): () => void;
 
   /**
    * go asks ws to go to this path in the plugin: /browse/PROJ-2. ws adds
@@ -200,6 +232,14 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
   const navigated = new Set<(path: string) => void>();
   const changed = new Set<() => void>();
   const themed = new Set<(theme: Theme) => void>();
+  const refsChanged = new Set<() => void>();
+  const marks = new Set<() => void>();
+  // What's been asked of ws and not yet answered, by the asking's id; and
+  // what's to be asked, once whatever is asking now has all asked.
+  const asked = new Map<number, (found: FoundRef[][]) => void>();
+  let asking: { texts: readonly string[]; found: (found: FoundRef[][]) => void }[] = [];
+  let askings = 0;
+  let closed = false;
 
   const send = (m: V1.PageMessage) => port.postMessage(m);
   const on = <F>(fns: Set<F>, fn: F) => {
@@ -210,6 +250,33 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
   };
   const { at, base } = welcome.plugin;
   const open = (to: string, replace?: boolean) => send(replace ? { type: "ws:go", path: to, replace } : { type: "ws:go", path: to });
+
+  // Every asking of this turn goes as one ws:refs, and the answer is
+  // dealt back out: a list of rows that each ask is one message.
+  const ask = () => {
+    const batch = asking;
+    asking = [];
+    if (!batch.length) return;
+    const id = ++askings;
+    asked.set(id, (found) => {
+      let at = 0;
+      for (const b of batch) {
+        b.found(b.texts.map((_, i) => found[at + i] ?? []));
+        at += b.texts.length;
+      }
+    });
+    send({ type: "ws:refs", id, texts: batch.flatMap((b) => [...b.texts]) });
+  };
+  const findRefs = (texts: readonly string[]) =>
+    new Promise<FoundRef[][]>((resolve) => {
+      // A ws that doesn't say it finds names is never asked: it wouldn't
+      // answer.
+      if (!welcome.refs || closed || !texts.length) return resolve(texts.map(() => []));
+      if (!asking.length) queueMicrotask(ask);
+      // As they are now: what the caller does with its list afterwards
+      // isn't what was asked.
+      asking.push({ texts: [...texts], found: resolve });
+    });
 
   if (doc) applyTheme(doc, theme);
   const unwire = doc ? wire(doc, welcome, send, open) : () => {};
@@ -237,6 +304,15 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
       case "ws:changed":
         for (const fn of [...changed]) fn();
         break;
+      case "ws:refs-found": {
+        const found = asked.get(m.id);
+        asked.delete(m.id);
+        found?.(m.found);
+        break;
+      }
+      case "ws:refs-changed":
+        for (const fn of [...refsChanged]) fn();
+        break;
     }
   };
 
@@ -259,6 +335,16 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
     onNavigate: (fn) => on(navigated, fn),
     onChanged: (fn) => on(changed, fn),
     onTheme: (fn) => on(themed, fn),
+    findRefs,
+    onRefsChanged: (fn) => on(refsChanged, fn),
+    markRefs(element) {
+      const stop = mark(element, { find: (texts) => findRefs(texts), onChanged: (fn) => on(refsChanged, fn) });
+      marks.add(stop);
+      return () => {
+        marks.delete(stop);
+        stop();
+      };
+    },
     go(to, options = {}) {
       if (!to.startsWith("/")) throw new TypeError(`go("${to}"): a path in the plugin starts with "/".`);
       open(at + to, options.replace);
@@ -270,6 +356,13 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
     open: (to) => open(to),
     close() {
       unwire();
+      for (const stop of [...marks]) stop();
+      marks.clear();
+      // Nobody's left to answer: what's still asked for finds nothing.
+      closed = true;
+      for (const b of asking.splice(0)) b.found(b.texts.map(() => []));
+      for (const found of [...asked.values()]) found([]);
+      asked.clear();
       port.onmessage = null;
       port.close();
     },

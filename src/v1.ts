@@ -73,6 +73,43 @@ export interface Welcome {
   path: string;
   theme: Theme;
   keys: Keys;
+  /**
+   * ws finds its names in text: it answers ws:refs. A ws from before it
+   * did doesn't say so, and a page there asks nothing and finds nothing.
+   */
+  refs?: boolean;
+}
+
+/**
+ * FoundRef is one of ws's names in a run of text (a file, a pull request,
+ * a mission, a plugin's thing), as ws found it: where it is, what it is,
+ * where it goes, and how it's drawn. Which words are names is ws's alone
+ * to say: it knows what there is to name.
+ */
+export interface FoundRef {
+  /** Where it starts in the text, as a string's index. */
+  from: number;
+  /** Where it ends: text.slice(from, to) is the name. */
+  to: number;
+  /**
+   * ws's own word for what's named. A page keeps it with what it draws and
+   * says it back when it says something of the ref. It reads nothing in it.
+   */
+  ref: string;
+  /**
+   * What kind of thing it is: "file", "dir", "repo", "pr", "mission",
+   * "page", "talk", "artifact", or "thing" for a plugin's. More may come.
+   */
+  kind: string;
+  /**
+   * Where it goes: an address of ws's (/missions/token-cache), or one
+   * outside (https://…) for a thing that opens nowhere in ws.
+   */
+  href: string;
+  /** "pill" for one drawn as a pill. Without it, its words, marked. */
+  shape?: string;
+  /** A CSS colour of its own: a repo's. */
+  accent?: string;
 }
 
 // From the page.
@@ -111,6 +148,17 @@ export interface Key {
   alt: boolean;
 }
 
+/**
+ * Refs asks ws which of its names are in some runs of text. ws answers
+ * with a ws:refs-found of the same id.
+ */
+export interface Refs {
+  type: "ws:refs";
+  /** The page's number for the asking, which the answer has. */
+  id: number;
+  texts: string[];
+}
+
 // From ws.
 
 /**
@@ -133,10 +181,29 @@ export interface Changed {
   type: "ws:changed";
 }
 
+/**
+ * The answer to a ws:refs: for each of its texts, in their order, the refs
+ * in it, in the order they're in, none over another.
+ */
+export interface RefsFound {
+  type: "ws:refs-found";
+  id: number;
+  found: FoundRef[][];
+}
+
+/**
+ * What there is to name changed (a mission began, a repo's files were
+ * read): what a ws:refs found may be different now. A page that drew refs
+ * asks again. ws says it only to a page that has asked.
+ */
+export interface RefsChanged {
+  type: "ws:refs-changed";
+}
+
 /** What a page sends on the port. */
-export type PageMessage = Go | Title | Key;
+export type PageMessage = Go | Title | Key | Refs;
 /** What ws sends on the port. */
-export type HostMessage = Welcome | Refuse | Navigate | ThemeChanged | Changed;
+export type HostMessage = Welcome | Refuse | Navigate | ThemeChanged | Changed | RefsFound | RefsChanged;
 
 // The guards check a message's shape: that it's one of this version's,
 // with each field it must have. A message that fails is dropped, which is
@@ -163,7 +230,24 @@ export function isWelcome(m: unknown): m is Welcome {
     isPlugin(m.plugin) &&
     isString(m.path) &&
     isTheme(m.theme) &&
-    isKeys(m.keys)
+    isKeys(m.keys) &&
+    (m.refs === undefined || typeof m.refs === "boolean")
+  );
+}
+
+const isIndex = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 0;
+
+export function isFoundRef(m: unknown): m is FoundRef {
+  return (
+    isRecord(m) &&
+    isIndex(m.from) &&
+    isIndex(m.to) &&
+    m.to > m.from &&
+    isString(m.ref) &&
+    isString(m.kind) &&
+    isString(m.href) &&
+    (m.shape === undefined || isString(m.shape)) &&
+    (m.accent === undefined || isString(m.accent))
   );
 }
 
@@ -176,6 +260,8 @@ export function isPageMessage(m: unknown): m is PageMessage {
       return isString(m.title);
     case "ws:key":
       return isString(m.key) && [m.meta, m.ctrl, m.shift, m.alt].every((v) => typeof v === "boolean");
+    case "ws:refs":
+      return isIndex(m.id) && isStrings(m.texts);
     default:
       return false;
   }
@@ -193,6 +279,10 @@ export function isHostMessage(m: unknown): m is HostMessage {
     case "ws:theme":
       return isTheme(m);
     case "ws:changed":
+      return true;
+    case "ws:refs-found":
+      return isIndex(m.id) && Array.isArray(m.found) && m.found.every((of) => Array.isArray(of) && of.every(isFoundRef));
+    case "ws:refs-changed":
       return true;
     default:
       return false;

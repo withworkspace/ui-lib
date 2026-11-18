@@ -47,6 +47,7 @@ What a page can rely on:
 - **The bundle is a module script.** It runs once the document is parsed, and can import its own chunks by paths relative to its URL.
 - **There's no `<base>`.** The app reaches the plugin's HTTP by the path the welcome gives (`plugin.api`), not by relative URLs.
 - **The page is ws's origin,** and its content security policy allows scripts, styles, fonts and connections from that origin only, and no inline script. Inline style is allowed. Images may also be `data:` or `https:`.
+- **A ref is styled,** in a ws that finds them: a link drawn as [a ref is](#refs) looks as a ref does in ws, with no styles of the app's.
 
 What it can't:
 
@@ -63,7 +64,9 @@ Where ws can't load the app (there's no such plugin, it needs setting up, it did
 - **ws keeps answering old versions.** A page built for version 1 goes on working in a ws that has gone on to 2.
 - **The handshake's own two messages, `ws:connect` and `ws:refuse`, hold across versions:** they're said before there's a version to say them in. A version may add fields to them and nothing else.
 
-The package's list is `PROTOCOL_VERSIONS`, fixed in each release: `[1]` in 0.1.0 and 0.2.0.
+The package's list is `PROTOCOL_VERSIONS`, fixed in each release: `[1]` in every release so far, 0.1.0 to 0.3.0.
+
+Version 1 has gained since it began: [refs](#refs) (`ws:refs`, `ws:refs-found`, `ws:refs-changed`, and the welcome's `refs`), in this package's 0.3.0 and the ws built on it.
 
 Version 1 broke that rule once, in the ws release after 0.4.0 and this package's 0.2.0, while only withworkspace's own plugins were built on it: ws took over the history, `ws:go` replaced `ws:path`, `ws:open` and `data-ws` links, and the welcome's `plugin` gained `at`. A page built on 0.1.0 still connects to a later ws, but its moves within the app aren't followed. Rebuilt on 0.2.0, it is.
 
@@ -100,7 +103,8 @@ ws answers on the port, with a welcome or a refusal.
   "plugin": { "name": "jira", "at": "/x/jira", "base": "/plugin-frame/jira", "api": "/plugins/jira" },
   "path": "/browse/PROJ-1?tab=links",
   "theme": { "scheme": "dark", "vars": { "--ws-bg": "#16161a", "--ws-accent": "#a08ad0" } },
-  "keys": { "chords": ["k", "p"], "bare": ["?", "g"], "leaders": ["g"], "within": 900 }
+  "keys": { "chords": ["k", "p"], "bare": ["?", "g"], "leaders": ["g"], "within": 900 },
+  "refs": true
 }
 ```
 
@@ -116,6 +120,7 @@ ws answers on the port, with a welcome or a refusal.
 | `theme.scheme` | `light` or `dark` |
 | `theme.vars` | Each token's value now, by its `--ws-*` name: every token of this version ([below](#the-tokens)), and any more ws has |
 | `keys` | The keys ws owns, which the page passes on ([below](#keys)) |
+| `refs` | Optional. `true` when ws finds its names in text: it answers `ws:refs` ([below](#refs)). A ws from before it did leaves it out, and a page there doesn't ask. |
 
 What ws doesn't send: what a `ws:go` does (that's ws's to decide when it gets one), its routes, its API, or who's signed in.
 
@@ -150,6 +155,9 @@ After the welcome. Each is `{ "type": "ws:…", … }` on the port.
 | `ws:navigate` | ws | `path` | ws's address moved within the plugin: after the page's own `ws:go`, or from the sidebar, a link in ws, back and forward. The app shows that path. It's the only way the app's path changes. |
 | `ws:theme` | ws | `scheme`, `vars` | The theme changed: as the welcome's `theme` |
 | `ws:changed` | ws | | The plugin said `view/changed`: what the app shows may be stale |
+| `ws:refs` | page | `id`, `texts` | Which of ws's names are in these runs of text? `id` is the page's number for the asking. ([Refs](#refs)) |
+| `ws:refs-found` | ws | `id`, `found` | The answer to the `ws:refs` of that `id`: for each of its texts, in their order, the refs in it |
+| `ws:refs-changed` | ws | | What there is to name changed: what a `ws:refs` found may be different now. ws says it only to a page that has asked. |
 
 A `path` in the plugin (`ws:navigate`'s, the welcome's) starts with `/`, has no base, and keeps its query. A `ws:go`'s is ws's address, with its query.
 
@@ -179,6 +187,61 @@ Some keys are ws's wherever they're pressed: the palette, the shortcuts' help, g
 - **`leaders`** are bare keys after which the next bare letter, `a` to `z`, within `within` milliseconds, is ws's too: `g` then `m`.
 
 Each is compared with the event's `key`. For a key that's ws's, the page stops the default action and sends `ws:key` with the `key` and which of ⌘ (`meta`), Ctrl, Shift and Alt were held.
+
+## Refs
+
+A ref is a name in some words for something ws can go to: a file (`demo/main.go:12`), a pull request (`demo#12`), a mission by its slug, a page, a conversation, an artifact, and a plugin's thing by a name its plugin registered (`PROJ-12`). ws draws them wherever it shows text, each as somewhere to go. A page draws them in its own text by asking ws which words are names.
+
+Only ws can say. A name is one only when what it names is there (a file in its repo, a mission the workspace has, a prefix some plugin registered), and that changes while the page is open. So the page holds no grammar and no list: it sends text, and draws what comes back.
+
+```json
+{ "type": "ws:refs", "id": 7, "texts": ["See PROJ-12 for more", "demo is a repo"] }
+```
+
+```json
+{
+  "type": "ws:refs-found",
+  "id": 7,
+  "found": [
+    [{ "from": 4, "to": 11, "ref": "…", "kind": "thing", "href": "/x/jira/browse/PROJ-12" }],
+    [{ "from": 0, "to": 4, "ref": "…", "kind": "repo", "href": "/files/demo", "shape": "pill", "accent": "#6e509c" }]
+  ]
+}
+```
+
+`found` has a list for each of `texts`, in their order. Each list is the refs in that text, in the order they're in, none over another:
+
+| Field | What it is |
+|---|---|
+| `from`, `to` | Where the name is in the text, as indices into the string (UTF-16 code units, as JavaScript counts): `text.slice(from, to)` is the name |
+| `ref` | ws's own word for what's named. The page keeps it with what it draws, and says it back when it says something of the ref. It reads nothing in it: what's in it can change with any release of ws. |
+| `kind` | What kind of thing: `file`, `dir`, `repo`, `pr`, `mission`, `page`, `talk`, `artifact`, or `thing` for a plugin's. More may come: a page draws a kind it doesn't know like any other. |
+| `href` | Where it goes: an address of ws's (`/missions/token-cache`, `/x/jira/browse/PROJ-12`), or one outside (`https://…`) for a thing that opens nowhere in ws |
+| `shape` | Optional. `pill` for one drawn as a pill. Without it, its words, marked. |
+| `accent` | Optional. A CSS colour of its own: a repo's. |
+
+- **ws answers every `ws:refs`,** in the order they came, once it says `refs` in the welcome. A text with no names has an empty list.
+- **The answer is for now.** When what there is to name changes (a mission began, a plugin registered its names, a repo's files were read), ws says `ws:refs-changed`, and a page that drew refs asks again about what it shows. A file is found only once its repo's files are read, which ws starts when a text first names the repo: so a file's name is often words in the first answer and a ref after the `ws:refs-changed` that follows.
+- **What isn't read for names** is the page's to decide. ws doesn't find them in its own headings, links' words or blocks of code, and takes inline code as a name only when all of it is one; the package's `markRefs` does the same.
+
+### Drawing one
+
+A ref is a link, so it's followed as any link in the page is ([History](#history)): a click is `ws:go`, or a tab of its own for an address outside. The shell styles one drawn like this, as a ref looks in ws:
+
+```html
+<a class="ws-ref" href="/x/jira/browse/PROJ-12" data-ws-ref="…" data-ws-kind="thing">PROJ-12</a>
+<a class="ws-ref" href="/files/demo" data-ws-ref="…" data-ws-kind="repo" data-ws-shape="pill" style="--ws-ref-accent: #6e509c">demo</a>
+```
+
+| | |
+|---|---|
+| `class="ws-ref"` and `data-ws-ref` | The ref, with ws's word for it. Both are needed for the shell's styles. |
+| `href` | The ref's `href` |
+| `data-ws-kind` | Its `kind` |
+| `data-ws-shape` | Its `shape`, if it has one |
+| `--ws-ref-accent` | Its `accent`, if it has one |
+
+The link's words are the name as it was written.
 
 ## The theme
 
