@@ -190,44 +190,113 @@ describe("the keys ws owns", () => {
   });
 });
 
-describe("data-ws links", () => {
-  test("a click opens the page in ws, not in the frame", async () => {
-    const { add, click, host } = await page();
-    const link = add('<a data-ws="/missions/token-cache" href="/missions/token-cache"><b>Token cache</b></a>');
+describe("links", () => {
+  // What the page has asked ws to go to.
+  const gone = async (ws: Parameters<typeof settled>[0], host: Parameters<typeof settled>[1]) => {
+    await settled(ws, host);
+    return host.sent.flatMap((m) => (m.type === "ws:go" ? [m.path] : []));
+  };
+
+  test("a link to a page of ws's is ws's to follow", async () => {
+    const { add, click, host, ws } = await page();
+    const link = add('<a href="/missions/token-cache"><b>Token cache</b></a>');
 
     expect(click(link.firstElementChild!)).toBe(true);
 
-    expect(await host.next("ws:open")).toEqual({ type: "ws:open", path: "/missions/token-cache" });
+    expect(await gone(ws, host)).toEqual(["/missions/token-cache"]);
+  });
+
+  test("a link to the plugin's own page is ws's too, and ws says where the app is", async () => {
+    const { add, click, host, ws } = await page({ path: "/" });
+    const moved = new Promise<string>((resolve) => ws.onNavigate(resolve));
+    const link = add(`<a href="${ws.href("/browse/PROJ-2?tab=links")}">PROJ-2</a>`);
+
+    expect(click(link)).toBe(true);
+
+    expect(await moved).toBe("/browse/PROJ-2?tab=links");
+    expect(await gone(ws, host)).toEqual(["/x/fake/browse/PROJ-2?tab=links"]);
+  });
+
+  test("a relative link is to the plugin's page it means", async () => {
+    const { add, click, host, ws } = await page();
+    const link = add('<a href="browse/PROJ-2">PROJ-2</a>');
+
+    expect(click(link)).toBe(true);
+
+    expect(await gone(ws, host)).toEqual(["/x/fake/browse/PROJ-2"]);
+  });
+
+  test("the frame's address follows ws, adding no history", async () => {
+    const { window, add, click, host, ws } = await page({ path: "/" });
+    const before = window.history.length;
+    const moved = new Promise<string>((resolve) => ws.onNavigate(resolve));
+
+    host.navigate("/browse/PROJ-1");
+    await moved;
+    expect(window.location.pathname).toBe("/plugin-frame/fake/browse/PROJ-1");
+    expect(window.history.length).toBe(before);
+
+    // So a relative link resolves against where the app is now.
+    click(add('<a href="PROJ-2">PROJ-2</a>'));
+    expect(await gone(ws, host)).toEqual(["/x/fake/browse/PROJ-2"]);
   });
 
   test("a click with a modifier held, or another button, is left to the browser", async () => {
     const { add, click, host, ws } = await page();
-    const link = add('<a data-ws="/missions/token-cache" href="/missions/token-cache">Token cache</a>');
+    const link = add('<a href="/missions/token-cache">Token cache</a>');
 
     expect(click(link, { metaKey: true })).toBe(false);
     expect(click(link, { ctrlKey: true })).toBe(false);
     expect(click(link, { shiftKey: true })).toBe(false);
+    expect(click(link, { altKey: true })).toBe(false);
     expect(click(link, { button: 1 })).toBe(false);
 
-    await settled(ws, host);
-    expect(host.sent.filter((m) => m.type === "ws:open")).toEqual([]);
+    expect(await gone(ws, host)).toEqual([]);
   });
 
-  test("any other link is the page's own", async () => {
+  test("a target, a download, or a link the app handled is left alone", async () => {
     const { add, click, host, ws } = await page();
-    const link = add('<a href="#here">Here</a>');
+    expect(click(add('<a href="/missions/x" target="_blank">x</a>'))).toBe(false);
+    expect(click(add('<a href="/missions/x" download>x</a>'))).toBe(false);
+    expect(click(add('<a href="mailto:someone@example.com">mail</a>'))).toBe(false);
 
-    expect(click(link)).toBe(false);
+    const handled = add('<a href="/missions/x">x</a>');
+    handled.addEventListener("click", (e) => e.preventDefault());
+    click(handled);
 
-    await settled(ws, host);
-    expect(host.sent.filter((m) => m.type === "ws:open")).toEqual([]);
+    expect(await gone(ws, host)).toEqual([]);
+  });
+
+  test("a link to elsewhere on the web, or to the plugin's own HTTP, opens in a tab of its own", async () => {
+    const { window, add, click, host, ws } = await page();
+    const opened = vi.spyOn(window, "open").mockReturnValue(null);
+
+    expect(click(add('<a href="https://example.com/a">a</a>'))).toBe(true);
+    expect(click(add('<a href="/plugins/fake/export.csv">export</a>'))).toBe(true);
+
+    expect(opened.mock.calls.map((c) => c[0])).toEqual(["https://example.com/a", "http://ws.test/plugins/fake/export.csv"]);
+    expect(await gone(ws, host)).toEqual([]);
+  });
+
+  test("a link to a place in the page scrolls there, adding no history", async () => {
+    const { window, document, add, click, host, ws } = await page();
+    add('<div><a href="#notes">Notes</a><h2 id="notes">Notes</h2></div>');
+    const heading = document.getElementById("notes")!;
+    const scrolled = vi.spyOn(heading, "scrollIntoView").mockImplementation(() => {});
+    const before = window.history.length;
+
+    expect(click(document.querySelector("a")!)).toBe(true);
+
+    expect(scrolled).toHaveBeenCalled();
+    expect(window.history.length).toBe(before);
+    expect(await gone(ws, host)).toEqual([]);
   });
 });
 
 describe("close", () => {
   test("stops passing on keys and links", async () => {
     const { document, add, press, click, ws } = await page();
-    const link = add('<a data-ws="/missions/token-cache" href="#">Token cache</a>');
+    const link = add('<a href="/missions/token-cache">Token cache</a>');
 
     ws.close();
 

@@ -44,18 +44,18 @@ What it's given back:
 | | |
 |---|---|
 | `ws.root` | The shell's `<div id="root">`, to render into |
-| `ws.path` | Where in the plugin ws's address is now: `/browse/PROJ-1?tab=links`. It follows `onNavigate` and `setPath`. |
+| `ws.path` | Where in the plugin ws's address is now: `/browse/PROJ-1?tab=links`. It changes only when ws says so (`onNavigate`). |
 | `ws.name` | The plugin's name |
-| `ws.base` | The path the frame's own address is under: `/plugin-frame/jira`. A router's basename. |
+| `ws.href(path)` | A path in the plugin as ws's address, for a link: `ws.href("/browse/PROJ-2")` is `/x/jira/browse/PROJ-2` |
 | `ws.api(path)` | A path in the plugin's own HTTP, as a URL to fetch: `ws.api("/issues")` is `/plugins/jira/issues` |
 | `ws.theme` | `{ scheme, vars }`: `light` or `dark`, and each token's value. It's applied already. |
 | `ws.version` | The frame protocol version the handshake chose |
-| `ws.onNavigate(fn)` | ws's address moved within the plugin without the app saying so: the sidebar, a link in ws, back and forward. `fn` is given the path, and the app goes there, replacing its own history entry. |
+| `ws.onNavigate(fn)` | ws's address moved within the plugin: a link clicked in the app, a `go`, the sidebar, back and forward. `fn` is given the path, and the app shows it. |
 | `ws.onChanged(fn)` | The plugin said what the app shows is stale (`p.Changed()` in the Go framework) |
 | `ws.onTheme(fn)` | The theme changed. It's applied before `fn` runs, so this is only for an app that draws with the values itself. |
-| `ws.setPath(path)` | The app moved to this path in the plugin: ws's address follows. Saying where ws's address already is sends nothing. |
+| `ws.go(path, { replace })` | Ask ws to go to this path in the plugin: `ws.go("/browse/PROJ-2")`. ws adds it to its history (or, with `replace`, puts it in place of the entry it's on) and `onNavigate` follows. |
 | `ws.setTitle(title)` | The page's title, for the tab |
-| `ws.open(path)` | Go to a page of ws's own: `ws.open("/missions/token-cache")` |
+| `ws.open(address)` | Ask ws to go to an address of its own: `ws.open("/missions/token-cache")` |
 | `ws.close()` | Stop listening and close the port: for tests and hot reload |
 
 Each `on…` returns a function that stops it.
@@ -66,31 +66,32 @@ Three things, and nothing more:
 
 - **The theme.** ws's shell has the theme's tokens in a `<style>` before the app loads, as `--ws-bg`, `--ws-fg`, `--ws-accent` and [the rest](PROTOCOL.md#the-tokens). When the theme changes in ws, the client sets the new values on `<html>`, so CSS that uses `var(--ws-…)` follows by itself.
 - **Keys.** The keys ws owns (the palette on ⌘K, say) are passed on to ws when they're pressed in the frame. Which keys those are comes from ws in the handshake, not from this package.
-- **Links to ws.** A click on `<a data-ws="/missions/token-cache">` goes there in ws, as `ws.open` does.
+- **Links.** A link clicked in the app is ws's to follow, so the frame never adds to history: a link to `ws.href(…)` (or a relative one) moves the app, by way of ws, and one to `/missions/token-cache` goes to that page of ws's. A click with a key held or another button, a `target`, or a `download` is left to the browser, and a link elsewhere on the web opens in a tab of its own. [`PROTOCOL.md`](PROTOCOL.md#history) has the whole of it.
 
 ### Routing
 
-The client doesn't route. An app keeps ws's address in step with its own in two lines: it says when it moves, and it moves when it's told.
+ws keeps the history. The app renders `ws.path`, renders again when it's told to, and moves by asking: a link to `ws.href(…)`, or `ws.go(…)`. It doesn't move first and tell ws after.
 
 ```ts
-function go(path: string) {
-  render(path);
-  ws.setPath(path);
-}
 ws.onNavigate((path) => render(path));
 render(ws.path);
+
+// A link: a click is ws's, and ⌘-click opens it in a tab of its own.
+`<a href="${ws.href("/browse/PROJ-2")}">PROJ-2</a>`;
+
+// After saving, say. replace, for a redirect or a filter typed into.
+ws.go("/browse/PROJ-3");
+ws.go("/board?q=cache", { replace: true });
 ```
 
-With a router that uses the frame's history, `ws.base` is its basename. With React Router:
+A router of its own, if the app has one, takes the path from the client and not from `location`: its memory mode, fed by `onNavigate`. With Preact, which we suggest for a plugin's UI:
 
 ```tsx
-const router = createBrowserRouter(routes, { basename: ws.base });
-ws.onNavigate((path) => router.navigate(path, { replace: true }));
-createRoot(ws.root).render(<RouterProvider router={router} />);
-
-// In the root route's component:
-const { pathname, search } = useLocation();
-useEffect(() => ws.setPath(pathname + search), [pathname, search]);
+function usePath(ws: Client): string {
+  const [path, setPath] = useState(ws.path);
+  useEffect(() => ws.onNavigate(setPath), [ws]);
+  return path;
+}
 ```
 
 ### When it can't connect
@@ -131,6 +132,9 @@ host.changed();                      // ws:changed
 await host.next("ws:title");         // the next ws:title from the page
 host.sent;                           // everything the page has sent
 host.connects;                       // each ws:connect, with its versions
+
+ws.go("/board");                     // ws:go, and the host says ws:navigate back, as ws does
+host.path;                           // "/board"
 
 ws.close();
 host.close();

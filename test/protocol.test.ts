@@ -12,16 +12,17 @@ const welcome = {
   type: "ws:welcome",
   version: 1,
   ws: "0.43.0",
-  plugin: { name: "jira", base: "/plugin-frame/jira", api: "/plugins/jira" },
+  plugin: { name: "jira", at: "/x/jira", base: "/plugin-frame/jira", api: "/plugins/jira" },
   path: "/browse/PROJ-1?tab=links",
   theme: { scheme: "dark", vars },
   keys: { chords: ["k", "p"], bare: ["?", "g"], leaders: ["g"], within: 900 },
 } satisfies V1.Welcome satisfies V1.HostMessage;
 const refuse = { type: "ws:refuse", versions: [1], message: "jira speaks frame protocol 2, and this ws speaks 1. Update ws." } satisfies Refuse satisfies V1.Refuse satisfies V1.HostMessage;
 const fromPage = [
-  { type: "ws:path", path: "/browse/PROJ-2" } satisfies V1.Path,
+  { type: "ws:go", path: "/x/jira/browse/PROJ-2" } satisfies V1.Go,
+  { type: "ws:go", path: "/x/jira/board?q=cache", replace: true } satisfies V1.Go,
+  { type: "ws:go", path: "/missions/token-cache" } satisfies V1.Go,
   { type: "ws:title", title: "PROJ-2 Token cache" } satisfies V1.Title,
-  { type: "ws:open", path: "/missions/token-cache" } satisfies V1.Open,
   { type: "ws:key", key: "k", meta: true, ctrl: false, shift: false, alt: false } satisfies V1.Key,
 ] satisfies V1.PageMessage[];
 const fromHost = [
@@ -100,7 +101,9 @@ describe("the guards", () => {
     for (const m of fromPage) expect(V1.isPageMessage(m), m.type).toBe(true);
     for (const m of fromHost) expect(V1.isPageMessage(m), m.type).toBe(false);
     expect(V1.isPageMessage(connect)).toBe(false); // it goes to the window, not the port
-    expect(V1.isPageMessage({ type: "ws:path" })).toBe(false);
+    expect(V1.isPageMessage({ type: "ws:go" })).toBe(false);
+    expect(V1.isPageMessage({ type: "ws:go", path: "/x/jira/", replace: "yes" })).toBe(false);
+    expect(V1.isPageMessage({ type: "ws:path", path: "/" })).toBe(false); // gone: ws:go is every move
     expect(V1.isPageMessage({ type: "ws:title", title: 3 })).toBe(false);
     expect(V1.isPageMessage({ type: "ws:key", key: "k" })).toBe(false);
     expect(V1.isPageMessage({ type: "ws:room", width: 900 })).toBe(false);
@@ -116,7 +119,7 @@ describe("the guards", () => {
   });
 
   test("a message with a field its version doesn't know is still that message", () => {
-    expect(V1.isPageMessage({ type: "ws:path", path: "/", later: true })).toBe(true);
+    expect(V1.isPageMessage({ type: "ws:go", path: "/", later: true })).toBe(true);
     expect(V1.isHostMessage({ type: "ws:changed", what: "issues" })).toBe(true);
     expect(isConnect({ ...connect, later: true })).toBe(true);
   });

@@ -32,7 +32,7 @@ describe("the handshake", () => {
     expect(ws.version).toBe(1);
     expect(ws.name).toBe("jira");
     expect(ws.path).toBe("/browse/PROJ-1?tab=links");
-    expect(ws.base).toBe("/plugin-frame/jira");
+    expect(ws.href("/browse/PROJ-2")).toBe("/x/jira/browse/PROJ-2");
     expect(ws.api("/issues")).toBe("/plugins/jira/issues");
     expect(ws.api("issues")).toBe("/plugins/jira/issues");
     expect(ws.theme.scheme).toBe("dark");
@@ -141,7 +141,7 @@ describe("the handshake", () => {
       type: "ws:welcome",
       version: 1,
       ws: "0.43.0",
-      plugin: { name: "jira", base: "/plugin-frame/jira", api: "/plugins/jira" },
+      plugin: { name: "jira", at: "/x/jira", base: "/plugin-frame/jira", api: "/plugins/jira" },
       path: "/",
       theme: { scheme: "light", vars: Object.fromEntries(TOKENS.map((t) => [`--ws-${t}`, "0"])) as V1.Vars },
       keys: { chords: [], bare: [], leaders: [], within: 0 },
@@ -164,8 +164,9 @@ describe("the handshake", () => {
   test("each connect has a port of its own, and the host drops the one before", async () => {
     const host = closing(fakeHost({ path: "/a" }));
     const first = closing(await connect({ host: host.window }));
-    first.setPath("/b");
-    await host.next("ws:path");
+    const went = new Promise<string>((resolve) => first.onNavigate(resolve));
+    first.go("/b");
+    await went;
 
     // The frame loads again: a new page, which starts where ws's address is.
     const second = closing(await connect({ host: host.window }));
