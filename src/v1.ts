@@ -38,8 +38,15 @@ export interface Keys {
 export interface Plugin {
   name: string;
   /**
-   * The path the frame's own address is under: /plugin-frame/jira. The
-   * basename for a router that uses the frame's history.
+   * The path the plugin's pages are under in ws's address: /x/jira. A link
+   * in the app is to a page here, so it opens where it should in a tab of
+   * its own.
+   */
+  at: string;
+  /**
+   * The path the frame's own address is under: /plugin-frame/jira. Only
+   * the client needs it: a relative link resolves against the frame's
+   * address, and the client reads it as the page under at it means.
    */
   base: string;
   /** The path the plugin's own HTTP is under: /plugins/jira. */
@@ -71,12 +78,18 @@ export interface Welcome {
 // From the page.
 
 /**
- * The app moved, on its own, to this path in the plugin. ws's address
- * follows, replacing its history entry.
+ * Go asks ws to go to an address of its own: /x/jira/browse/PROJ-2, a page
+ * in the plugin, or /missions/token-cache, a page of ws's. Every link
+ * clicked in the app, and every move the app makes, is one: the frame
+ * keeps no history of its own. ws decides what it does. When it's in the
+ * plugin, ws's address moves and ws says ws:navigate, as it does for any
+ * other move.
  */
-export interface Path {
-  type: "ws:path";
+export interface Go {
+  type: "ws:go";
   path: string;
+  /** Replace ws's history entry and don't add one: a redirect, a filter. */
+  replace?: boolean;
 }
 
 /**
@@ -86,12 +99,6 @@ export interface Path {
 export interface Title {
   type: "ws:title";
   title: string;
-}
-
-/** Go to a page of ws's: /missions/token-cache. ws decides what that does. */
-export interface Open {
-  type: "ws:open";
-  path: string;
 }
 
 /** A key ws owns was pressed in the frame. */
@@ -107,9 +114,9 @@ export interface Key {
 // From ws.
 
 /**
- * ws's address moved within the plugin without the page saying so: the
- * sidebar, a link in ws, back and forward. The app goes there, replacing
- * its own history entry.
+ * ws's address moved within the plugin: a ws:go from the page, the
+ * sidebar, a link in ws, back and forward. The app shows that path. It's
+ * the only way the app's path changes.
  */
 export interface Navigate {
   type: "ws:navigate";
@@ -127,7 +134,7 @@ export interface Changed {
 }
 
 /** What a page sends on the port. */
-export type PageMessage = Path | Title | Open | Key;
+export type PageMessage = Go | Title | Key;
 /** What ws sends on the port. */
 export type HostMessage = Welcome | Refuse | Navigate | ThemeChanged | Changed;
 
@@ -144,7 +151,7 @@ function isKeys(m: unknown): m is Keys {
 }
 
 function isPlugin(m: unknown): m is Plugin {
-  return isRecord(m) && isString(m.name) && isString(m.base) && isString(m.api);
+  return isRecord(m) && isString(m.name) && isString(m.at) && isString(m.base) && isString(m.api);
 }
 
 export function isWelcome(m: unknown): m is Welcome {
@@ -163,9 +170,8 @@ export function isWelcome(m: unknown): m is Welcome {
 export function isPageMessage(m: unknown): m is PageMessage {
   if (!isRecord(m)) return false;
   switch (m.type) {
-    case "ws:path":
-    case "ws:open":
-      return isString(m.path);
+    case "ws:go":
+      return isString(m.path) && (m.replace === undefined || typeof m.replace === "boolean");
     case "ws:title":
       return isString(m.title);
     case "ws:key":

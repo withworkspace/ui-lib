@@ -20,7 +20,7 @@ A view's address in ws is `/x/<name>/<rest>`. ws shows it as a frame whose own a
 /plugins/jira/…                               the plugin's own HTTP: its bundle and its API
 ```
 
-ws serves the shell for every path under `/plugin-frame/<name>/`, and doesn't ask the plugin which paths it has. So a link to somewhere deep in the app, a reload, and back and forward all load the app at that path.
+ws serves the shell for every path under `/plugin-frame/<name>/`, and doesn't ask the plugin which paths it has. So a link to somewhere deep in the app and a reload both load the app at that path. Opened as a page of its own, not in ws's frame, a shell's address sends the browser to the same path under `/x/<name>/`.
 
 ```html
 <!doctype html>
@@ -63,7 +63,9 @@ Where ws can't load the app (there's no such plugin, it needs setting up, it did
 - **ws keeps answering old versions.** A page built for version 1 goes on working in a ws that has gone on to 2.
 - **The handshake's own two messages, `ws:connect` and `ws:refuse`, hold across versions:** they're said before there's a version to say them in. A version may add fields to them and nothing else.
 
-The package's list is `PROTOCOL_VERSIONS`, fixed in each release: `[1]` in 0.1.0.
+The package's list is `PROTOCOL_VERSIONS`, fixed in each release: `[1]` in 0.1.0 and 0.2.0.
+
+Version 1 broke that rule once, in the ws release after 0.4.0 and this package's 0.2.0, while only withworkspace's own plugins were built on it: ws took over the history, `ws:go` replaced `ws:path`, `ws:open` and `data-ws` links, and the welcome's `plugin` gained `at`. A page built on 0.1.0 still connects to a later ws, but its moves within the app aren't followed. Rebuilt on 0.2.0, it is.
 
 ## The handshake
 
@@ -95,7 +97,7 @@ ws answers on the port, with a welcome or a refusal.
   "type": "ws:welcome",
   "version": 1,
   "ws": "0.43.0",
-  "plugin": { "name": "jira", "base": "/plugin-frame/jira", "api": "/plugins/jira" },
+  "plugin": { "name": "jira", "at": "/x/jira", "base": "/plugin-frame/jira", "api": "/plugins/jira" },
   "path": "/browse/PROJ-1?tab=links",
   "theme": { "scheme": "dark", "vars": { "--ws-bg": "#16161a", "--ws-accent": "#a08ad0" } },
   "keys": { "chords": ["k", "p"], "bare": ["?", "g"], "leaders": ["g"], "within": 900 }
@@ -107,14 +109,15 @@ ws answers on the port, with a welcome or a refusal.
 | `version` | The frame protocol version ws chose. Everything after this is in that version. |
 | `ws` | ws's own version, for logs and error messages. A page decides nothing by it: the protocol version says what it can rely on. |
 | `plugin.name` | The plugin's name |
-| `plugin.base` | The path the frame's own address is under: `/plugin-frame/jira`. The basename for an app whose router uses the frame's history. |
+| `plugin.at` | The path the plugin's pages are under in ws's address: `/x/jira`. A link in the app is to a page under it. |
+| `plugin.base` | The path the frame's own address is under: `/plugin-frame/jira`. A relative link resolves against the frame's address, and the page reads one under `base` as the page under `at` of the same path. |
 | `plugin.api` | The path the plugin's own HTTP is under: `/plugins/jira`. The plugin's `/issues` is `/plugins/jira/issues`. |
 | `path` | Where in the plugin ws's address is, without a base, with its query: `/browse/PROJ-1?tab=links` |
 | `theme.scheme` | `light` or `dark` |
 | `theme.vars` | Each token's value now, by its `--ws-*` name: every token of this version ([below](#the-tokens)), and any more ws has |
 | `keys` | The keys ws owns, which the page passes on ([below](#keys)) |
 
-What ws doesn't send: what `ws:open` does (that's ws's to decide when it gets one), its routes, its API, or who's signed in.
+What ws doesn't send: what a `ws:go` does (that's ws's to decide when it gets one), its routes, its API, or who's signed in.
 
 ```json
 {
@@ -141,17 +144,27 @@ After the welcome. Each is `{ "type": "ws:…", … }` on the port.
 
 | Message | From | Fields | What it's for |
 |---|---|---|---|
-| `ws:path` | page | `path` | The app moved, on its own, to this path in the plugin. ws's address follows, replacing its history entry. |
+| `ws:go` | page | `path`, `replace` | Go to this address of ws's: `/x/jira/browse/PROJ-2`, a page in the plugin, or `/missions/token-cache`, one of ws's own. ws decides what it does. `replace`, optional, puts it in place of ws's history entry rather than adding one: for a redirect, or a filter typed into. |
 | `ws:title` | page | `title` | The page's title, for the tab and the frame's label. An empty title means the view's own. |
-| `ws:open` | page | `path` | Go to a page of ws's: `/missions/token-cache`. ws decides what that does. Today it only takes a path that starts with `/` and not `//`. |
 | `ws:key` | page | `key`, `meta`, `ctrl`, `shift`, `alt` | A key ws owns was pressed in the frame. ws acts as if it had been pressed in its own page. |
-| `ws:navigate` | ws | `path` | ws's address moved within the plugin without the page saying so: the sidebar, a link in ws, back and forward. The app goes there, replacing its own history entry and not adding one, so that one move is one step back. |
+| `ws:navigate` | ws | `path` | ws's address moved within the plugin: after the page's own `ws:go`, or from the sidebar, a link in ws, back and forward. The app shows that path. It's the only way the app's path changes. |
 | `ws:theme` | ws | `scheme`, `vars` | The theme changed: as the welcome's `theme` |
 | `ws:changed` | ws | | The plugin said `view/changed`: what the app shows may be stale |
 
-A `path` in the plugin (`ws:path`, `ws:navigate`, the welcome's) starts with `/`, has no base, and keeps its query.
+A `path` in the plugin (`ws:navigate`'s, the welcome's) starts with `/`, has no base, and keeps its query. A `ws:go`'s is ws's address, with its query.
 
 ws never loads the frame again to move it: every page is an app that routes itself. An app that wants to load again on `ws:changed` does it itself.
+
+## History
+
+ws keeps the history, and the frame keeps none. Every move, whether it starts in the app or in ws, is one entry in ws's history, so back and forward are ws's alone and come to the app as `ws:navigate`.
+
+- **The page adds nothing to the frame's history.** It doesn't push state, and doesn't let a click on a link move the frame. On `ws:navigate` it replaces the frame's address with the same path under `base`, so a relative link resolves against where the app is, and a reload starts there.
+- **A link clicked in the page is `ws:go`,** with its address resolved against the frame's and, if it's under `base`, read as the same path under `at`. So an app's links are ws's addresses (`/x/jira/browse/PROJ-2`): ⌘-click, a middle click and copying the link all give the page in ws.
+- **What the browser does better is left to it:** a click with ⌘, Ctrl, Shift or Alt held, another button, a `target` other than `_self`, a `download`, a scheme that isn't http(s), and a click the app's own handler already prevented.
+- **Somewhere else on the web, and the plugin's own HTTP** (a path under `api`: an export, say), open in a tab of their own, never in the frame.
+- **A place in the page** (`#notes`, in the page as it is) is scrolled to, with no history.
+- **A `ws:go` to where ws already is** replaces the entry and doesn't add one, as a link to the page you're on does in a browser.
 
 ## Keys
 

@@ -1,7 +1,8 @@
 // The page's side of the frame: connect() does the handshake with ws and
 // gives the app a Client over the port. What it wires into the page is
 // small, and each part is something ws said in the welcome: the theme on
-// <html>, the keys ws owns passed on, and data-ws links opened in ws.
+// <html>, the keys ws owns passed on, and links clicked handed to ws. ws
+// keeps the history: the frame never adds to it.
 
 import { PROTOCOL_VERSIONS, type Connect, type ProtocolVersion, V1, isRefuse } from "./protocol.js";
 import { isRecord } from "./shape.js";
@@ -51,7 +52,7 @@ export interface ConnectOptions {
   host?: HostWindow;
   /**
    * The document to wire: the theme goes on its <html>, and its keys and
-   * data-ws links are listened for. The page's own by default. Where
+   * link clicks are listened for. The page's own by default. Where
    * there's none (in Node), nothing is wired.
    */
   document?: Document;
@@ -68,18 +69,14 @@ export interface Client {
   /** The plugin's name. */
   readonly name: string;
   /**
-   * The path the frame's own address is under: /plugin-frame/jira. The
-   * basename for a router that uses the frame's history.
-   */
-  readonly base: string;
-  /**
    * The <div id="root"> of ws's shell, to render into. Reading it throws
    * where there's no document, or no #root in it.
    */
   readonly root: HTMLElement;
   /**
    * Where in the plugin ws's address is now, without a base, with its
-   * query: /browse/PROJ-1?tab=links. It follows ws:navigate and setPath.
+   * query: /browse/PROJ-1?tab=links. It changes only with ws:navigate,
+   * after a go() too: render from it, and from onNavigate.
    */
   readonly path: string;
   /** ws's theme now. It's applied to <html> already. */
@@ -90,12 +87,17 @@ export interface Client {
    * api("/issues") is /plugins/jira/issues.
    */
   api(path: string): string;
+  /**
+   * href is a path in the plugin as ws's address, for a link's href:
+   * href("/browse/PROJ-2") is /x/jira/browse/PROJ-2. A click on it is
+   * handed to ws, and ⌘-click opens the page in a tab of its own.
+   */
+  href(path: string): string;
 
   /**
-   * onNavigate runs fn when ws's address moves within the plugin without
-   * the app having said so (the sidebar, a link in ws, back and forward).
-   * The app goes there, replacing its own history entry. Each on… returns
-   * a function that stops it.
+   * onNavigate runs fn when ws's address moves within the plugin: a link
+   * clicked in the app, a go(), the sidebar, back and forward. The app
+   * shows that path. Each on… returns a function that stops it.
    */
   onNavigate(fn: (path: string) => void): () => void;
   /** onChanged runs fn when the plugin says what the app shows is stale. */
@@ -107,16 +109,20 @@ export interface Client {
   onTheme(fn: (theme: Theme) => void): () => void;
 
   /**
-   * setPath says the app moved to this path in the plugin: ws's address
-   * follows. Saying where ws's address already is sends nothing.
+   * go asks ws to go to this path in the plugin: /browse/PROJ-2. ws adds
+   * it to its history (or, with replace, puts it in place of where it is)
+   * and onNavigate follows. The app moves when it's told, not before.
    */
-  setPath(path: string): void;
+  go(path: string, options?: { replace?: boolean }): void;
   /**
    * setTitle is the page's title, for the tab. An empty one means the
    * view's own.
    */
   setTitle(title: string): void;
-  /** open goes to a page of ws's own: /missions/token-cache. */
+  /**
+   * open asks ws to go to an address of its own: /missions/token-cache.
+   * What it does is ws's to decide.
+   */
   open(path: string): void;
   /** close stops listening and closes the port: for tests and hot reload. */
   close(): void;
@@ -202,10 +208,11 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
       fns.delete(fn);
     };
   };
-  const open = (to: string) => send({ type: "ws:open", path: to });
+  const { at, base } = welcome.plugin;
+  const open = (to: string, replace?: boolean) => send(replace ? { type: "ws:go", path: to, replace } : { type: "ws:go", path: to });
 
   if (doc) applyTheme(doc, theme);
-  const unwire = doc ? wire(doc, welcome.keys, send, open) : () => {};
+  const unwire = doc ? wire(doc, welcome, send, open) : () => {};
 
   port.onmessage = (e: MessageEvent) => {
     const m: unknown = e.data;
@@ -213,6 +220,13 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
     switch (m.type) {
       case "ws:navigate":
         path = m.path;
+        // The frame's address follows, in place: a relative link resolves
+        // against it, and a reload starts there. It adds no history.
+        try {
+          doc?.defaultView?.history.replaceState(doc.defaultView.history.state, "", base + m.path);
+        } catch {
+          // A frame whose address can't be set (in a test, say) still moves.
+        }
         for (const fn of [...navigated]) fn(m.path);
         break;
       case "ws:theme":
@@ -229,7 +243,6 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
   return {
     version: welcome.version,
     name: welcome.plugin.name,
-    base: welcome.plugin.base,
     get root() {
       const root = doc?.getElementById("root");
       if (!root) throw new Error(doc ? 'There\'s no <div id="root"> in the page: ws\'s shell has one.' : "There's no document, so there's no #root: give connect() one.");
@@ -242,20 +255,19 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
       return theme;
     },
     api: (p) => welcome.plugin.api + (p.startsWith("/") ? p : `/${p}`),
+    href: (p) => at + (p.startsWith("/") ? p : `/${p}`),
     onNavigate: (fn) => on(navigated, fn),
     onChanged: (fn) => on(changed, fn),
     onTheme: (fn) => on(themed, fn),
-    setPath(to) {
-      if (!to.startsWith("/")) throw new TypeError(`setPath("${to}"): a path in the plugin starts with "/".`);
-      if (to === path) return;
-      path = to;
-      send({ type: "ws:path", path: to });
+    go(to, options = {}) {
+      if (!to.startsWith("/")) throw new TypeError(`go("${to}"): a path in the plugin starts with "/".`);
+      open(at + to, options.replace);
     },
     setTitle(title) {
       if (doc) doc.title = title;
       send({ type: "ws:title", title });
     },
-    open,
+    open: (to) => open(to),
     close() {
       unwire();
       port.onmessage = null;
@@ -274,8 +286,9 @@ function applyTheme(doc: Document, theme: Theme) {
 }
 
 // wire listens in the page for what's ws's: the keys the welcome named,
-// and clicks on links to ws's own pages. It returns what undoes it.
-function wire(doc: Document, keys: V1.Keys, send: (m: V1.PageMessage) => void, open: (path: string) => void): () => void {
+// and clicks on links. It returns what undoes it.
+function wire(doc: Document, welcome: V1.Welcome, send: (m: V1.PageMessage) => void, open: (address: string) => void): () => void {
+  const { keys } = welcome;
   let leaderAt = 0;
 
   const onKey = (e: KeyboardEvent) => {
@@ -291,13 +304,41 @@ function wire(doc: Document, keys: V1.Keys, send: (m: V1.PageMessage) => void, o
     send({ type: "ws:key", key: e.key, meta: e.metaKey, ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey });
   };
 
-  // <a data-ws="/missions/x"> goes there in ws, not in the frame.
+  // A link clicked is ws's to follow, so the frame never adds to history.
+  // What the browser does better is left to it: a click with a key held or
+  // another button (a tab of its own), a target, a download.
   const onClick = (e: MouseEvent) => {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     const target = e.target as Partial<Element> | null;
-    const a = target?.closest?.("a[data-ws]");
-    if (!a || e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+    const a = target?.closest?.("a[href]") as HTMLAnchorElement | null | undefined;
+    if (!a || typeof a.href !== "string" || a.hasAttribute("download")) return;
+    const named = a.getAttribute("target");
+    if (named && named !== "_self") return;
+    const view = doc.defaultView;
+    if (!view) return;
+    let url: URL;
+    let here: URL;
+    try {
+      url = new URL(a.href, view.location.href);
+      here = new URL(view.location.href);
+    } catch {
+      return;
+    }
+    if (url.protocol !== "http:" && url.protocol !== "https:") return; // mailto:, say
     e.preventDefault();
-    open(a.getAttribute("data-ws") ?? "");
+    const api = welcome.plugin.api;
+    if (url.origin !== here.origin || url.pathname === api || url.pathname.startsWith(`${api}/`)) {
+      // Somewhere else on the web, or a file from the plugin's own HTTP:
+      // in a tab of its own, never in the frame.
+      view.open(url.href, "_blank", "noopener");
+      return;
+    }
+    if (url.hash && url.pathname === here.pathname && url.search === here.search) {
+      // A place in this page: scrolled to, with no history.
+      doc.getElementById(decodeURIComponent(url.hash.slice(1)))?.scrollIntoView();
+      return;
+    }
+    open(address(url, welcome.plugin));
   };
 
   doc.addEventListener("keydown", onKey);
@@ -306,6 +347,15 @@ function wire(doc: Document, keys: V1.Keys, send: (m: V1.PageMessage) => void, o
     doc.removeEventListener("keydown", onKey);
     doc.removeEventListener("click", onClick);
   };
+}
+
+// address is a link's URL as ws's address. A link resolved against the
+// frame's own (a relative href) is to the plugin's page of that path.
+function address(url: URL, plugin: V1.Plugin): string {
+  const { pathname, search, hash } = url;
+  const inFrame = pathname === plugin.base || pathname.startsWith(`${plugin.base}/`);
+  const path = inFrame ? plugin.at + (pathname.slice(plugin.base.length) || "/") : pathname;
+  return path + search + hash;
 }
 
 // Whether a key pressed here is being typed into something.

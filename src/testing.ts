@@ -1,6 +1,7 @@
 // A fake host: ws, without ws. It answers a page's ws:connect as ws web
 // does, from the same types, and lets a test say what ws would (a move, a
-// theme, a change) and see what the page said. It needs no DOM: it runs on
+// theme, a change) and see what the page said. Like ws, it follows a
+// ws:go into the plugin with a ws:navigate. It needs no DOM: it runs on
 // a MessageChannel, which Node has.
 
 import { type Connect, type Refuse, TOKENS, type Token, V1, chooseVersion, isConnect } from "./protocol.js";
@@ -42,6 +43,11 @@ export interface FakeHost {
   readonly connects: readonly Connect[];
   /** Every message the page has sent on its port, in order. */
   readonly sent: readonly V1.PageMessage[];
+  /**
+   * Where in the plugin ws's address is now: where it started, then each
+   * navigate() and each ws:go into the plugin.
+   */
+  readonly path: string;
 
   /**
    * next resolves with the next message of this type from the page that no
@@ -51,7 +57,10 @@ export interface FakeHost {
    */
   next<T extends V1.PageMessage["type"]>(type: T, options?: { timeout?: number }): Promise<Extract<V1.PageMessage, { type: T }>>;
 
-  /** navigate sends ws:navigate: ws's address moved within the plugin. */
+  /**
+   * navigate sends ws:navigate: ws's address moved within the plugin. The
+   * host does it by itself for a ws:go into the plugin, as ws does.
+   */
   navigate(path: string): void;
   /**
    * theme sends ws:theme. A scheme brings its own plausible values, and
@@ -133,7 +142,13 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
   const heard = (m: unknown) => {
     if (!V1.isPageMessage(m)) return; // as ws does with what it doesn't know
     sent.push(m);
-    if (m.type === "ws:path") path = m.path;
+    // As ws: a page of the plugin's is gone to, and the page told.
+    const at = `/x/${name}`;
+    if (m.type === "ws:go" && (m.path === at || m.path.startsWith(`${at}/`) || m.path.startsWith(`${at}?`))) {
+      path = m.path.slice(at.length) || "/";
+      if (!path.startsWith("/")) path = `/${path}`;
+      say({ type: "ws:navigate", path });
+    }
     const i = waiting.findIndex((w) => w.type === m.type);
     if (i < 0) unread.push(m);
     else waiting.splice(i, 1)[0]!.give(m);
@@ -166,7 +181,7 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
         type: "ws:welcome",
         version: version as 1,
         ws: options.ws ?? "0.0.0-fake",
-        plugin: { name, base: `/plugin-frame/${name}`, api: `/plugins/${name}` },
+        plugin: { name, at: `/x/${name}`, base: `/plugin-frame/${name}`, api: `/plugins/${name}` },
         path,
         theme,
         keys,
@@ -178,6 +193,9 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
     window,
     connects,
     sent,
+    get path() {
+      return path;
+    },
     next(type, { timeout = 1000 } = {}) {
       type Wanted = Extract<V1.PageMessage, { type: typeof type }>;
       const i = unread.findIndex((m) => m.type === type);

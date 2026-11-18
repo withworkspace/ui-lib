@@ -10,28 +10,36 @@ async function connected(options: Parameters<typeof fakeHost>[0] = {}) {
 }
 
 describe("from the page", () => {
-  test("setPath sends ws:path, and the path follows", async () => {
-    const { host, ws } = await connected({ path: "/browse/PROJ-1" });
+  test("go sends ws:go with ws's address, and the path follows only when ws says so", async () => {
+    const { host, ws } = await connected({ name: "jira", path: "/browse/PROJ-1" });
+    const moved = new Promise<string>((resolve) => ws.onNavigate(resolve));
 
-    ws.setPath("/browse/PROJ-2?tab=links");
+    ws.go("/browse/PROJ-2?tab=links");
 
-    expect(await host.next("ws:path")).toEqual({ type: "ws:path", path: "/browse/PROJ-2?tab=links" });
+    expect(await host.next("ws:go")).toEqual({ type: "ws:go", path: "/x/jira/browse/PROJ-2?tab=links" });
+    expect(await moved).toBe("/browse/PROJ-2?tab=links");
     expect(ws.path).toBe("/browse/PROJ-2?tab=links");
   });
 
-  test("setPath to where ws's address already is sends nothing", async () => {
-    const { host, ws } = await connected({ path: "/board" });
+  test("go with replace says so", async () => {
+    const { host, ws } = await connected({ name: "jira" });
 
-    ws.setPath("/board");
-    await settled(ws, host);
+    ws.go("/board?q=cache", { replace: true });
 
-    expect(host.sent.filter((m) => m.type === "ws:path")).toEqual([]);
+    expect(await host.next("ws:go")).toEqual({ type: "ws:go", path: "/x/jira/board?q=cache", replace: true });
   });
 
-  test("setPath takes only a path in the plugin", async () => {
+  test("go takes only a path in the plugin", async () => {
     const { ws } = await connected();
-    expect(() => ws.setPath("board")).toThrow(TypeError);
-    expect(() => ws.setPath("https://example.com/")).toThrow(/starts with "\/"/);
+    expect(() => ws.go("board")).toThrow(TypeError);
+    expect(() => ws.go("https://example.com/")).toThrow(/starts with "\/"/);
+  });
+
+  test("href is a path in the plugin as ws's address", async () => {
+    const { ws } = await connected({ name: "jira" });
+    expect(ws.href("/browse/PROJ-2")).toBe("/x/jira/browse/PROJ-2");
+    expect(ws.href("board")).toBe("/x/jira/board");
+    expect(ws.href("/")).toBe("/x/jira/");
   });
 
   test("setTitle sends ws:title", async () => {
@@ -42,25 +50,26 @@ describe("from the page", () => {
     expect(await host.next("ws:title")).toEqual({ type: "ws:title", title: "PROJ-2 Token cache" });
   });
 
-  test("open sends ws:open, and leaves what it does to ws", async () => {
-    const { host, ws } = await connected();
+  test("open sends ws:go as it's given, and leaves what it does to ws", async () => {
+    const { host, ws } = await connected({ path: "/" });
 
     ws.open("/missions/token-cache");
     ws.open("https://example.com/");
 
-    expect(await host.next("ws:open")).toEqual({ type: "ws:open", path: "/missions/token-cache" });
-    expect(await host.next("ws:open")).toEqual({ type: "ws:open", path: "https://example.com/" });
+    expect(await host.next("ws:go")).toEqual({ type: "ws:go", path: "/missions/token-cache" });
+    expect(await host.next("ws:go")).toEqual({ type: "ws:go", path: "https://example.com/" });
+    expect(ws.path).toBe("/"); // neither is in the plugin
   });
 
   test("the host keeps everything the page sent, in order", async () => {
     const { host, ws } = await connected();
 
     ws.setTitle("One");
-    ws.setPath("/two");
+    ws.go("/two");
     ws.open("/three");
     await settled(ws, host);
 
-    expect(host.sent.map((m) => m.type)).toEqual(["ws:title", "ws:path", "ws:open", "ws:title"]);
+    expect(host.sent.map((m) => m.type)).toEqual(["ws:title", "ws:go", "ws:go", "ws:title"]);
   });
 
   test("next gives each message once, whether it came before the asking or after", async () => {
@@ -69,17 +78,17 @@ describe("from the page", () => {
     ws.setTitle("One");
     ws.setTitle("Two");
     await settled(ws, host); // both have arrived
-    const later = host.next("ws:path");
-    ws.setPath("/later");
+    const later = host.next("ws:go");
+    ws.go("/later");
 
     expect((await host.next("ws:title")).title).toBe("One");
     expect((await host.next("ws:title")).title).toBe("Two");
-    expect((await later).path).toBe("/later");
+    expect((await later).path).toBe("/x/fake/later");
   });
 
   test("next says so when the page sends nothing", async () => {
     const { host } = await connected();
-    await expect(host.next("ws:open", { timeout: 20 })).rejects.toThrow("The page sent no ws:open within 20ms.");
+    await expect(host.next("ws:go", { timeout: 20 })).rejects.toThrow("The page sent no ws:go within 20ms.");
   });
 });
 
@@ -94,17 +103,15 @@ describe("from ws", () => {
     expect(ws.path).toBe("/board?mine=1");
   });
 
-  test("the app saying where ws just sent it sends nothing back", async () => {
+  test("the app moving when it's told sends nothing back", async () => {
     const { host, ws } = await connected({ path: "/" });
-    // An app's router, kept in step both ways.
-    ws.onNavigate((path) => ws.setPath(path));
     const moved = new Promise<string>((resolve) => ws.onNavigate(resolve));
 
     host.navigate("/board");
     await moved;
     await settled(ws, host);
 
-    expect(host.sent.filter((m) => m.type === "ws:path")).toEqual([]);
+    expect(host.sent.filter((m) => m.type === "ws:go")).toEqual([]);
   });
 
   test("ws:changed runs onChanged", async () => {
