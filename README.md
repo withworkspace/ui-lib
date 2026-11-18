@@ -237,9 +237,10 @@ A change to the protocol is made in `PROTOCOL.md`, `src/protocol.ts` and `src/v1
 
 A release is a `v<version>` tag, which `.github/workflows/release.yml` stages on npm, and a maintainer then approves. The workflow stages by trusted publishing: npm trusts that workflow in this repo, and no token is stored anywhere. npm lets it stage a version and not publish one, so nothing is public until someone with 2FA approves it.
 
-1. Set the version in `package.json` and `src/version.ts` (a test checks they agree), and merge it.
-2. Tag that commit `v<version>` and push the tag. The workflow stages the version with `npm stage publish`. A version with a hyphen (`v0.2.0-rc.1`) is staged as `next`, not `latest`.
-3. Approve the stage, which publishes it. The workflow's Publish step prints the stage's id, and `npm stage list @withworkspace/ui-lib` lists it too:
+The version is the tag's: `v0.4.0` is 0.4.0. `package.json` and `src/version.ts` say 0.0.0 in the repo, and the workflow writes the tag's version into both before it tests and builds, so no change sets a version.
+
+1. Tag the commit on `main` `v<version>` and push the tag. The workflow stages the version with `npm stage publish`. A version with a hyphen (`v0.2.0-rc.1`) is staged as `next`, not `latest`.
+2. Approve the stage, which publishes it. The workflow's Publish step prints the stage's id, and `npm stage list @withworkspace/ui-lib` lists it too:
 
    ```sh
    npm stage approve <stage-id>

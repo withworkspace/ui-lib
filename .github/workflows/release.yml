@@ -1,9 +1,9 @@
 name: Release
 
-# A v* tag stages the package on npm, as the version package.json says,
-# by trusted publishing: npm trusts this workflow in this repo, and no
-# token is stored anywhere. npm lets this workflow stage a version and
-# not publish one: a staged version isn't public until a maintainer
+# A v* tag stages the package on npm, as the version the tag says (v0.4.0
+# is 0.4.0), by trusted publishing: npm trusts this workflow in this repo,
+# and no token is stored anywhere. npm lets this workflow stage a version
+# and not publish one: a staged version isn't public until a maintainer
 # approves it, with `npm stage approve <stage-id>` and their 2FA. A pull
 # request that changes this file runs everything but the staging, to try it.
 on:
@@ -31,18 +31,22 @@ jobs:
 
       - run: npm ci
 
+      # The version is the tag's. The repo holds 0.0.0 in package.json and
+      # src/version.ts, and the tag's is written into both here, before the
+      # tests, one of which checks the two agree. A try is given a version
+      # that's never published: npm checks a dry run against what's there too.
+      - name: Take the version from the tag
+        run: |
+          case "$GITHUB_REF" in
+            refs/tags/v*) version="${GITHUB_REF_NAME#v}" ;;
+            *)            version="0.0.0-try" ;;
+          esac
+          npm version "$version" --no-git-tag-version
+          sed -i "s/^export const VERSION = .*/export const VERSION = \"$version\";/" src/version.ts
+
       - run: npm test
 
       - run: npm run build
-
-      - name: Check the tag is the version
-        if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          version=$(node -p 'require("./package.json").version')
-          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
-            echo "the tag is $GITHUB_REF_NAME, and package.json says $version: tag it v$version, or change package.json"
-            exit 1
-          fi
 
       # It prints the stage's id, which `npm stage approve` takes.
       - name: Publish
@@ -50,5 +54,5 @@ jobs:
           case "$GITHUB_REF" in
             refs/tags/*-*) npm stage publish --tag next ;;    # v0.2.0-rc.1: a prerelease, not latest
             refs/tags/*)   npm stage publish ;;
-            *)             npm stage publish --dry-run ;;
+            *)             npm stage publish --dry-run --tag try ;;
           esac
