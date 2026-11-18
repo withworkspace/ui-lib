@@ -31,7 +31,9 @@ async function page(options: Parameters<typeof fakeHost>[0] = {}) {
     await settled(ws, host);
     return host.sent.flatMap((m) => (m.type === "ws:key" ? [m.key] : []));
   };
-  return { window, document, html, host, ws, press, click, add, keys };
+  // A press on something in the page: the pointer going down.
+  const pressOn = (on: Element) => void on.dispatchEvent(new window.Event("pointerdown", { bubbles: true }) as unknown as Event);
+  return { window, document, html, host, ws, press, click, add, keys, pressOn };
 }
 
 describe("the theme", () => {
@@ -293,7 +295,91 @@ describe("links", () => {
   });
 });
 
+describe("a press elsewhere", () => {
+  test("dismissOutside runs for a press in the page outside the element, and not for one in it", async () => {
+    const { add, pressOn, ws } = await page();
+    const app = add('<div><div id="menu"><button>Rename</button></div><p id="elsewhere">Elsewhere</p></div>');
+    const menu = app.querySelector("#menu")!;
+    let dismissed = 0;
+    ws.dismissOutside(menu, () => dismissed++);
+
+    pressOn(menu.querySelector("button")!);
+    pressOn(menu);
+    expect(dismissed).toBe(0);
+
+    pressOn(app.querySelector("#elsewhere")!);
+    expect(dismissed).toBe(1);
+  });
+
+  test("it hears the press before what's pressed can stop it", async () => {
+    const { add, pressOn, ws } = await page();
+    const app = add('<div><div id="menu"></div><p id="elsewhere">Elsewhere</p></div>');
+    const elsewhere = app.querySelector("#elsewhere")!;
+    elsewhere.addEventListener("pointerdown", (e) => e.stopPropagation());
+    let dismissed = 0;
+    ws.dismissOutside(app.querySelector("#menu")!, () => dismissed++);
+
+    pressOn(elsewhere);
+
+    expect(dismissed).toBe(1);
+  });
+
+  test("dismissOutside runs for a press in ws, outside the frame", async () => {
+    const { add, host, ws } = await page();
+    const menu = add('<div id="menu"></div>');
+    const dismissed = new Promise<void>((resolve) => ws.dismissOutside(menu, resolve));
+
+    host.outside();
+
+    await dismissed;
+  });
+
+  test("given several elements, a press in any of them is in", async () => {
+    const { add, pressOn, ws } = await page();
+    const app = add('<div><button id="opens">Menu</button><div id="menu"></div><p id="elsewhere">Elsewhere</p></div>');
+    let dismissed = 0;
+    ws.dismissOutside([app.querySelector("#opens")!, app.querySelector("#menu")!], () => dismissed++);
+
+    pressOn(app.querySelector("#opens")!);
+    pressOn(app.querySelector("#menu")!);
+    expect(dismissed).toBe(0);
+
+    pressOn(app.querySelector("#elsewhere")!);
+    expect(dismissed).toBe(1);
+  });
+
+  test("what it returns stops it, for the page's presses and for ws's, and leaves another given the same fn", async () => {
+    const { add, pressOn, host, ws } = await page();
+    const app = add('<div><div id="a"></div><div id="b"></div><p id="elsewhere">Elsewhere</p></div>');
+    let dismissed = 0;
+    const fn = () => void dismissed++;
+    const stop = ws.dismissOutside(app.querySelector("#a")!, fn);
+    ws.dismissOutside(app.querySelector("#b")!, fn);
+
+    stop();
+    pressOn(app.querySelector("#elsewhere")!);
+    expect(dismissed).toBe(1);
+
+    const heard = new Promise<void>((resolve) => ws.onOutside(resolve));
+    host.outside();
+    await heard;
+    expect(dismissed).toBe(2);
+  });
+});
+
 describe("close", () => {
+  test("stops hearing presses elsewhere", async () => {
+    const { add, pressOn, ws } = await page();
+    const app = add('<div><div id="menu"></div><p id="elsewhere">Elsewhere</p></div>');
+    let dismissed = 0;
+    ws.dismissOutside(app.querySelector("#menu")!, () => dismissed++);
+
+    ws.close();
+    pressOn(app.querySelector("#elsewhere")!);
+
+    expect(dismissed).toBe(0);
+  });
+
   test("stops passing on keys and links", async () => {
     const { document, add, press, click, ws } = await page();
     const link = add('<a href="/missions/token-cache">Token cache</a>');

@@ -48,6 +48,7 @@ What a page can rely on:
 - **There's no `<base>`.** The app reaches the plugin's HTTP by the path the welcome gives (`plugin.api`), not by relative URLs.
 - **The page is ws's origin,** and its content security policy allows scripts, styles, fonts and connections from that origin only, and no inline script. Inline style is allowed. Images may also be `data:` or `https:`.
 - **A ref is styled,** in a ws that finds them: a link drawn as [a ref is](#refs) looks as a ref does in ws, with no styles of the app's.
+- **A backdrop is styled, and ws dims beside it,** in a ws that does: an element of the class `ws-backdrop` covers the frame in ws's own scrim, and for as long as the page has one ws dims what's beside the frame ([A backdrop](#a-backdrop)).
 
 What it can't:
 
@@ -66,7 +67,10 @@ Where ws can't load the app (there's no such plugin, it needs setting up, it did
 
 The package's list is `PROTOCOL_VERSIONS`, fixed in each release: `[1]` in every release so far, 0.1.0 to 0.3.0.
 
-Version 1 has gained since it began: [refs](#refs) (`ws:refs`, `ws:refs-found`, `ws:refs-changed`, and the welcome's `refs`), in this package's 0.3.0 and the ws built on it.
+Version 1 has gained since it began:
+
+- [Refs](#refs) (`ws:refs`, `ws:refs-found`, `ws:refs-changed`, and the welcome's `refs`), in this package's 0.3.0 and the ws built on it.
+- [The frame's edge](#the-frames-edge) (`ws:outside`, the shell's `.ws-backdrop`, and the token `scrim`), in the release after 0.3.0 and the ws built on it. The welcome doesn't say whether ws has them: in a ws from before, a page hears no `ws:outside`, and a backdrop dims the frame alone.
 
 Version 1 broke that rule once, in the ws release after 0.4.0 and this package's 0.2.0, while only withworkspace's own plugins were built on it: ws took over the history, `ws:go` replaced `ws:path`, `ws:open` and `data-ws` links, and the welcome's `plugin` gained `at`. A page built on 0.1.0 still connects to a later ws, but its moves within the app aren't followed. Rebuilt on 0.2.0, it is.
 
@@ -158,6 +162,7 @@ After the welcome. Each is `{ "type": "ws:…", … }` on the port.
 | `ws:refs` | page | `id`, `texts` | Which of ws's names are in these runs of text? `id` is the page's number for the asking. ([Refs](#refs)) |
 | `ws:refs-found` | ws | `id`, `found` | The answer to the `ws:refs` of that `id`: for each of its texts, in their order, the refs in it |
 | `ws:refs-changed` | ws | | What there is to name changed: what a `ws:refs` found may be different now. ws says it only to a page that has asked. |
+| `ws:outside` | ws | | A press landed in ws, outside the frame. ([A press outside](#a-press-outside)) |
 
 A `path` in the plugin (`ws:navigate`'s, the welcome's) starts with `/`, has no base, and keeps its query. A `ws:go`'s is ws's address, with its query.
 
@@ -243,6 +248,47 @@ A ref is a link, so it's followed as any link in the page is ([History](#history
 
 The link's words are the name as it was written.
 
+## The frame's edge
+
+A frame is a window of its own, and two things stop at its edge that shouldn't seem to: a press, and a backdrop.
+
+### A press outside
+
+A page closes a menu when something else is pressed. A press in ws, on the sidebar say, never reaches the page's document, so ws says it:
+
+```json
+{ "type": "ws:outside" }
+```
+
+- **ws says it for every press in its own page** while the frame is there: the pointer going down (`pointerdown`), wherever in ws it lands and whatever it does there. It has no fields: what was pressed is ws's own business.
+- **It's said to every page,** asked for or not. A page with nothing open does nothing with it.
+- **A press in the frame isn't one.** The page has those itself.
+
+The package's `dismissOutside` joins the two: it runs for a press in the page outside some elements, and for a press in ws.
+
+### A backdrop
+
+A dialog's backdrop dims the page behind it. In a frame it can only dim the frame, so ws dims what's beside the frame for as long as the page has one up, in the same colour, and the two read as one.
+
+The page draws its backdrop as the shell's:
+
+```html
+<div class="ws-backdrop">
+  <div role="dialog" aria-modal="true">…</div>
+</div>
+```
+
+The shell styles `.ws-backdrop`: fixed, over the whole frame, in ws's own scrim (the token `scrim`), fading in as ws's does. Where the dialog sits in it, and what's over what (`z-index`), is the app's.
+
+That's all of it: there's no message, and nothing for the page to call.
+
+- **ws watches the page's document for an element of the class,** from when the page connects, and dims what's beside the frame while there's one: its sidebar, or on a narrow window the bar across the top. The class on an element that's there counts as an element that came with it.
+- **Why ws looks, and isn't told.** The page is ws's origin, so ws sees the element in the same turn the app put it there, and both halves are drawn in the same frame, coming and going. A message on the port arrives a turn later, and ws's half would follow the app's by a frame every time.
+- **While ws is dimmed, nothing in what it dimmed can be pressed or tabbed to.** A press there is a `ws:outside` like any other, and takes no focus from the frame: whether it closes the dialog is the page's to decide.
+- **ws's half is there for as long as the element is.** Both fade in, and both are cut when they go: an app that fades its backdrop out keeps the element, and ws's half, until it's done.
+- **It isn't a lock.** ws's keys still work, and back and forward still move.
+- **ws ends it itself** when the page is gone: the frame loaded again, another page connected, or ws went somewhere else.
+
 ## The theme
 
 The shell has the theme before anything of the plugin's runs. The welcome gives it again as values, and `ws:theme` gives it each time it changes in ws: the theme switched, or the accent changed.
@@ -258,7 +304,7 @@ Those are set over the shell's `<style>`, so CSS that uses `var(--ws-…)` follo
 
 Version 1 promises these, each as `--ws-<name>`:
 
-- **Colour:** `bg`, `panel`, `raised`, `fg`, `dim`, `faint`, `line`, `line-strong`, `hover`, `well`, `code-bg`, `accent`, `accent-soft`, `accent-line`, `primary`, `primary-hover`, `on-primary`, `danger`, `warn`, `ok`
+- **Colour:** `bg`, `panel`, `raised`, `fg`, `dim`, `faint`, `line`, `line-strong`, `hover`, `well`, `code-bg`, `accent`, `accent-soft`, `accent-line`, `primary`, `primary-hover`, `on-primary`, `danger`, `warn`, `ok`, `scrim`
 - **Type:** `font`, `mono`, `text-xs`, `text-sm`, `text-md`, `text-lg`, `text-xl`, `text-2xl`
 - **Space, corners and depth:** `space-1`, `space-2`, `space-3`, `space-4`, `space-5`, `space-6`, `space-8`, `space-10`, `radius`, `radius-sm`, `radius-lg`, `shadow`
 

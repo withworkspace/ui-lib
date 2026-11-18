@@ -56,6 +56,8 @@ What it's given back:
 | `ws.markRefs(element)` | Draw ws's names in an element's words: `PROJ-12`, a file, a mission, each a link to where it goes ([Refs](#refs)) |
 | `ws.findRefs(texts)` | Ask ws which of its names are in some runs of text, to draw them yourself. It resolves with the refs in each. |
 | `ws.onRefsChanged(fn)` | What there is to name changed: what `findRefs` found may be different now |
+| `ws.dismissOutside(elements, fn)` | A press landed anywhere but in these elements, in the page or in ws: what closes a menu or a dialog ([Menus and dialogs](#menus-and-dialogs)) |
+| `ws.onOutside(fn)` | A press landed in ws, outside the frame: on the sidebar, say |
 | `ws.go(path, { replace })` | Ask ws to go to this path in the plugin: `ws.go("/browse/PROJ-2")`. ws adds it to its history (or, with `replace`, puts it in place of the entry it's on) and `onNavigate` follows. |
 | `ws.setTitle(title)` | The page's title, for the tab |
 | `ws.open(address)` | Ask ws to go to an address of its own: `ws.open("/missions/token-cache")` |
@@ -139,6 +141,34 @@ function Words({ ws, text }: { ws: Client; text: string }) {
 
 Askings made together go to ws as one message, so a list whose rows each ask costs one. In a ws from before it found names for a page, nothing is found, and the words stay words. [`PROTOCOL.md`](PROTOCOL.md#refs) has what a ref is given as.
 
+### Menus and dialogs
+
+The frame is a window of its own, and whoever's looking shouldn't be able to tell.
+
+**A press elsewhere.** A menu closes when something else is pressed, and a press on ws's sidebar never reaches the page. `dismissOutside` hears both: a press in the page outside the elements it's given, and a press in ws.
+
+```ts
+const stop = ws.dismissOutside([button, menu], close);
+```
+
+Give it the button that opens the menu as well as the menu, or a press on the button closes it and the click that follows opens it again. In a component:
+
+```tsx
+useEffect(() => (open ? ws.dismissOutside([button.current!, menu.current!], () => setOpen(false)) : undefined), [ws, open]);
+```
+
+`ws.onOutside(fn)` is ws's presses alone, for an app that already has its own way of hearing the page's.
+
+**A dialog's backdrop.** A backdrop in a frame can only dim the frame. Draw it with the shell's class, and ws dims what's beside the frame for as long as it's in the document, in the same colour, so the two read as one:
+
+```tsx
+<div class="ws-backdrop" onPointerDown={(e) => e.target === e.currentTarget && close()}>
+  <div role="dialog" aria-modal="true">…</div>
+</div>
+```
+
+The class makes it cover the frame, in ws's scrim, fading in as ws's own does. Where the dialog sits in it is the app's to style. There's nothing to call, and nothing of this package's in it: ws watches the page for the class, so both halves come and go in the same frame. A press on ws's dimmed side comes as any press in ws does, so `dismissOutside(dialog, close)` closes on either half. ws's keys and back still work while it's dimmed: it isn't a lock. [`PROTOCOL.md`](PROTOCOL.md#the-frames-edge) has the rest.
+
 ### When it can't connect
 
 `connect()` rejects with one of two errors, and an app shows either in the page:
@@ -174,6 +204,7 @@ host.navigate("/board");             // ws:navigate
 host.theme({ scheme: "light" });     // ws:theme, with every token
 host.changed();                      // ws:changed
 host.refsChanged();                  // ws:refs-changed
+host.outside();                      // ws:outside: a press in ws, outside the frame
 
 await host.next("ws:title");         // the next ws:title from the page
 host.sent;                           // everything the page has sent

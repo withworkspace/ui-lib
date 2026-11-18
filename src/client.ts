@@ -3,7 +3,9 @@
 // small, and each part is something ws said in the welcome: the theme on
 // <html>, the keys ws owns passed on, and links clicked handed to ws. ws
 // keeps the history: the frame never adds to it. Which words are ws's
-// names is ws's to say too: the app asks, and draws what it's told.
+// names is ws's to say too: the app asks, and draws what it's told. And a
+// press in ws, outside the frame, is one the page never sees: ws says it,
+// and what closes on a press elsewhere closes on it too.
 
 import { mark } from "./mark.js";
 import { PROTOCOL_VERSIONS, type Connect, type ProtocolVersion, V1, isRefuse } from "./protocol.js";
@@ -141,6 +143,21 @@ export interface Client {
   markRefs(element: Element): () => void;
 
   /**
+   * onOutside runs fn when a press lands in ws, outside the frame: on the
+   * sidebar, say. The page never sees such a press itself.
+   */
+  onOutside(fn: () => void): () => void;
+  /**
+   * dismissOutside runs fn when a press lands anywhere but in these
+   * elements: elsewhere in the page, or in ws outside the frame. It's what
+   * closes a menu or a dialog on a press elsewhere. Give it the button
+   * that opens the menu as well as the menu, or a press on the button
+   * closes it and the click that follows opens it again. It returns a
+   * function that stops it.
+   */
+  dismissOutside(within: Element | readonly Element[], fn: () => void): () => void;
+
+  /**
    * go asks ws to go to this path in the plugin: /browse/PROJ-2. ws adds
    * it to its history (or, with replace, puts it in place of where it is)
    * and onNavigate follows. The app moves when it's told, not before.
@@ -233,7 +250,9 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
   const changed = new Set<() => void>();
   const themed = new Set<(theme: Theme) => void>();
   const refsChanged = new Set<() => void>();
+  const outside = new Set<() => void>();
   const marks = new Set<() => void>();
+  const dismissals = new Set<() => void>();
   // What's been asked of ws and not yet answered, by the asking's id; and
   // what's to be asked, once whatever is asking now has all asked.
   const asked = new Map<number, (found: FoundRef[][]) => void>();
@@ -313,6 +332,9 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
       case "ws:refs-changed":
         for (const fn of [...refsChanged]) fn();
         break;
+      case "ws:outside":
+        for (const fn of [...outside]) fn();
+        break;
     }
   };
 
@@ -345,6 +367,27 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
         stop();
       };
     },
+    onOutside: (fn) => on(outside, fn),
+    dismissOutside(within, fn) {
+      const els: readonly Element[] = "nodeType" in within ? [within] : within;
+      // A press in the page, heard before whatever it lands on can stop
+      // it; and one in ws, which ws says. A function of its own for each,
+      // so stopping one leaves another that was given the same fn.
+      const pressed = (e: Event) => {
+        const on = e.target as Node | null;
+        if (on && els.some((el) => el.contains(on))) return;
+        fn();
+      };
+      doc?.addEventListener("pointerdown", pressed, true);
+      const unheard = on(outside, () => fn());
+      const stop = () => {
+        dismissals.delete(stop);
+        doc?.removeEventListener("pointerdown", pressed, true);
+        unheard();
+      };
+      dismissals.add(stop);
+      return stop;
+    },
     go(to, options = {}) {
       if (!to.startsWith("/")) throw new TypeError(`go("${to}"): a path in the plugin starts with "/".`);
       open(at + to, options.replace);
@@ -358,6 +401,7 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
       unwire();
       for (const stop of [...marks]) stop();
       marks.clear();
+      for (const stop of [...dismissals]) stop();
       // Nobody's left to answer: what's still asked for finds nothing.
       closed = true;
       for (const b of asking.splice(0)) b.found(b.texts.map(() => []));

@@ -36,6 +36,7 @@ const fromHost = [
   { type: "ws:changed" } satisfies V1.Changed,
   { type: "ws:refs-found", id: 1, found: [[found], [{ from: 0, to: 4, ref: '{"kind":"repo","repo":"demo"}', kind: "repo", href: "/files/demo", shape: "pill", accent: "#6e509c" }]] } satisfies V1.RefsFound,
   { type: "ws:refs-changed" } satisfies V1.RefsChanged,
+  { type: "ws:outside" } satisfies V1.Outside,
 ] satisfies V1.HostMessage[];
 // The other names /protocol has for a page and ws to use.
 const _names: [ProtocolVersion, Token, TokenVar, V1.Scheme, V1.Theme, V1.Keys, V1.Plugin] = [1, "bg", "--ws-bg", "dark", welcome.theme, welcome.keys, welcome.plugin];
@@ -48,12 +49,13 @@ describe("/protocol", () => {
     expect(PROTOCOL_VERSIONS).toEqual([1]);
   });
 
-  test("names the 40 tokens protocol 1 promises, each once", () => {
-    expect(TOKENS).toHaveLength(40);
-    expect(new Set(TOKENS).size).toBe(40);
+  test("names the 41 tokens protocol 1 promises, each once", () => {
+    expect(TOKENS).toHaveLength(41);
+    expect(new Set(TOKENS).size).toBe(41);
     expect(TOKENS).toContain("bg");
     expect(TOKENS).toContain("danger");
     expect(TOKENS).toContain("shadow");
+    expect(TOKENS).toContain("scrim");
   });
 
   test("the package's version is package.json's", () => {
@@ -132,6 +134,7 @@ describe("the guards", () => {
     expect(V1.isPageMessage({ type: "ws:room", width: 900 })).toBe(false);
     expect(V1.isPageMessage({ type: "ws:refs", texts: ["PROJ-12"] })).toBe(false);
     expect(V1.isPageMessage({ type: "ws:refs", id: 1, texts: "PROJ-12" })).toBe(false);
+    expect(V1.isPageMessage({ type: "ws:outside" })).toBe(false); // ws's to say, not a page's
     expect(V1.isPageMessage(undefined)).toBe(false);
   });
 
