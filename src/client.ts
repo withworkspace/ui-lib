@@ -3,9 +3,11 @@
 // small, and each part is something ws said in the welcome: the theme on
 // <html>, the keys ws owns passed on, and links clicked handed to ws. ws
 // keeps the history: the frame never adds to it. Which words are ws's
-// names is ws's to say too: the app asks, and draws what it's told. And a
+// names is ws's to say too: the app asks, and draws what it's told. A
 // press in ws, outside the frame, is one the page never sees: ws says it,
-// and what closes on a press elsewhere closes on it too.
+// and what closes on a press elsewhere closes on it too. And what the
+// page shows beyond its address (a thing in a panel) the app says, for
+// ws's Find to start from.
 
 import { mark } from "./mark.js";
 import { PROTOCOL_VERSIONS, type Connect, type ProtocolVersion, V1, isRefuse } from "./protocol.js";
@@ -158,6 +160,20 @@ export interface Client {
   dismissOutside(within: Element | readonly Element[], fn: () => void): () => void;
 
   /**
+   * pushHere says the page is showing one of ws's names now, beyond what
+   * its address says: an issue open in a panel over the board, RAM-123.
+   * ws's Find (⌘K) starts from it: what can be done to it, and what's
+   * linked to it. Only for what the address doesn't say: a page of the
+   * thing's own, where its kind said one opens, ws knows already.
+   *
+   * Several may be pushed (a panel, then a dialog over it): the latest
+   * still pushed is the one. It returns a function that takes this one
+   * off, in whatever order they're taken off; once all are, ws goes back
+   * to the page's address. ws forgets them all when the page goes.
+   */
+  pushHere(name: string): () => void;
+
+  /**
    * go asks ws to go to this path in the plugin: /browse/PROJ-2. ws adds
    * it to its history (or, with replace, puts it in place of where it is)
    * and onNavigate follows. The app moves when it's told, not before.
@@ -261,6 +277,16 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
   let closed = false;
 
   const send = (m: V1.PageMessage) => port.postMessage(m);
+  // What's been pushed as here, the latest last, and the name ws was last
+  // told: it's told again only when the latest changes.
+  const here: { name: string }[] = [];
+  let told: string | undefined;
+  const tellHere = () => {
+    const name = here.at(-1)?.name;
+    if (name === told || closed) return;
+    told = name;
+    send(name === undefined ? { type: "ws:here" } : { type: "ws:here", name });
+  };
   const on = <F>(fns: Set<F>, fn: F) => {
     fns.add(fn);
     return () => {
@@ -392,6 +418,19 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
       if (!to.startsWith("/")) throw new TypeError(`go("${to}"): a path in the plugin starts with "/".`);
       open(at + to, options.replace);
     },
+    pushHere(name) {
+      if (!name) throw new TypeError("pushHere(\"\"): a name says what the page shows.");
+      const entry = { name };
+      here.push(entry);
+      tellHere();
+      let gone = false;
+      return () => {
+        if (gone) return;
+        gone = true;
+        here.splice(here.indexOf(entry), 1);
+        tellHere();
+      };
+    },
     setTitle(title) {
       if (doc) doc.title = title;
       send({ type: "ws:title", title });
@@ -402,6 +441,8 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
       for (const stop of [...marks]) stop();
       marks.clear();
       for (const stop of [...dismissals]) stop();
+      // ws forgets what's here when the page goes: it isn't told.
+      here.length = 0;
       // Nobody's left to answer: what's still asked for finds nothing.
       closed = true;
       for (const b of asking.splice(0)) b.found(b.texts.map(() => []));

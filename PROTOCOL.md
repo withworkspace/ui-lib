@@ -163,6 +163,7 @@ After the welcome. Each is `{ "type": "ws:…", … }` on the port.
 | `ws:refs-found` | ws | `id`, `found` | The answer to the `ws:refs` of that `id`: for each of its texts, in their order, the refs in it |
 | `ws:refs-changed` | ws | | What there is to name changed: what a `ws:refs` found may be different now. ws says it only to a page that has asked. |
 | `ws:outside` | ws | | A press landed in ws, outside the frame. ([A press outside](#a-press-outside)) |
+| `ws:here` | page | `name` | What the page shows now that its address doesn't say: one of ws's names, or none. ([What's open](#whats-open)) |
 
 A `path` in the plugin (`ws:navigate`'s, the welcome's) starts with `/`, has no base, and keeps its query. A `ws:go`'s is ws's address, with its query.
 
@@ -288,6 +289,19 @@ That's all of it: there's no message, and nothing for the page to call.
 - **ws's half is there for as long as the element is.** Both fade in, and both are cut when they go: an app that fades its backdrop out keeps the element, and ws's half, until it's done.
 - **It isn't a lock.** ws's keys still work, and back and forward still move.
 - **ws ends it itself** when the page is gone: the frame loaded again, another page connected, or ws went somewhere else.
+
+## What's open
+
+ws's Find starts from what the page is of. ws reads that from the page's address, as the thing's kind said its pages are (`/issue/{ref}`): a page of a thing's own needs to say nothing. What the address doesn't say, the page does:
+
+```json
+{ "type": "ws:here", "name": "PROJ-12" }
+```
+
+- **`name` is one of ws's names,** as ws reads names anywhere: a plugin's thing (`PROJ-12`), a mission's slug, `demo#12`. Without it (`{ "type": "ws:here" }`), the page shows nothing beyond its address, and ws reads the address again.
+- **The latest said is what's open.** The package keeps a stack, so a panel and then a dialog over it each push and pop their own, and it says only the top when it changes. ws keeps no stack: it takes what it's told.
+- **ws forgets it when the page goes:** the frame loaded again, another page connected, or ws went somewhere outside the plugin. A move within the plugin (`ws:navigate`) isn't one: the page is still there, and what it said stands until it says otherwise, so a panel open over a list stays what's open while a filter changes the address.
+- **A name ws can't read is as none:** ws goes by the address.
 
 ## The theme
 
