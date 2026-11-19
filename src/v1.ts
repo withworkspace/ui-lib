@@ -173,6 +173,23 @@ export interface Here {
   name?: string;
 }
 
+/** The layouts of ws's chrome a page may ask for. */
+export type ChromeMode = "expanded" | "standard";
+
+/**
+ * ChromeLayout is how the page wants ws's chrome laid out round it.
+ * expanded: the page takes the room the chrome can give up (a canvas, a
+ * board, an editor that's better the wider it is): ws folds its sidebar
+ * to a rail beside the frame, as it does for its own such pages (a
+ * mission, a review), and the rail opens over the page on hover.
+ * standard: ws's chrome as it is anywhere else. ws goes back to standard
+ * when the page goes.
+ */
+export interface ChromeLayout {
+  type: "ws:chrome-layout";
+  mode: ChromeMode;
+}
+
 // From ws.
 
 /**
@@ -224,7 +241,7 @@ export interface Outside {
 }
 
 /** What a page sends on the port. */
-export type PageMessage = Go | Title | Key | Refs | Here;
+export type PageMessage = Go | Title | Key | Refs | Here | ChromeLayout;
 /** What ws sends on the port. */
 export type HostMessage = Welcome | Refuse | Navigate | ThemeChanged | Changed | RefsFound | RefsChanged | Outside;
 
@@ -287,6 +304,8 @@ export function isPageMessage(m: unknown): m is PageMessage {
       return isIndex(m.id) && isStrings(m.texts);
     case "ws:here":
       return m.name === undefined || (isString(m.name) && m.name !== "");
+    case "ws:chrome-layout":
+      return m.mode === "expanded" || m.mode === "standard";
     default:
       return false;
   }

@@ -88,6 +88,37 @@ describe("from the page", () => {
     expect(host.sent.filter((m) => m.type === "ws:here")).toEqual([{ type: "ws:here", name: "PROJ-2" }]);
   });
 
+  test("setChromeLayout says the layout when it changes", async () => {
+    const { host, ws } = await connected();
+    const said = () => host.sent.filter((m) => m.type === "ws:chrome-layout");
+
+    ws.setChromeLayout("standard"); // where it starts: nothing to say
+    ws.setChromeLayout("expanded");
+    ws.setChromeLayout("expanded");
+    await settled(ws, host);
+    expect(host.chromeLayout).toBe("expanded");
+
+    ws.setChromeLayout("standard");
+    await settled(ws, host);
+    expect(host.chromeLayout).toBe("standard");
+    expect(said()).toEqual([
+      { type: "ws:chrome-layout", mode: "expanded" },
+      { type: "ws:chrome-layout", mode: "standard" },
+    ]);
+    expect(() => ws.setChromeLayout("wide" as never)).toThrow(TypeError);
+  });
+
+  test("closed, it tells ws no layout: ws goes back to standard itself", async () => {
+    const { host, ws } = await connected();
+    ws.setChromeLayout("expanded");
+    await settled(ws, host);
+
+    ws.close();
+    ws.setChromeLayout("standard");
+
+    expect(host.sent.filter((m) => m.type === "ws:chrome-layout")).toEqual([{ type: "ws:chrome-layout", mode: "expanded" }]);
+  });
+
   test("open sends ws:go as it's given, and leaves what it does to ws", async () => {
     const { host, ws } = await connected({ path: "/" });
 

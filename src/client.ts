@@ -5,9 +5,10 @@
 // keeps the history: the frame never adds to it. Which words are ws's
 // names is ws's to say too: the app asks, and draws what it's told. A
 // press in ws, outside the frame, is one the page never sees: ws says it,
-// and what closes on a press elsewhere closes on it too. And what the
-// page shows beyond its address (a thing in a panel) the app says, for
-// ws's Find to start from.
+// and what closes on a press elsewhere closes on it too. What the page
+// shows beyond its address (a thing in a panel) the app says, for ws's
+// Find to start from. And a page says how it wants ws's chrome laid out
+// round it: a canvas has ws fold its sidebar.
 
 import { mark } from "./mark.js";
 import { PROTOCOL_VERSIONS, type Connect, type ProtocolVersion, V1, isRefuse } from "./protocol.js";
@@ -174,6 +175,17 @@ export interface Client {
   pushHere(name: string): () => void;
 
   /**
+   * setChromeLayout says how the page wants ws's chrome laid out round it.
+   * "expanded": the page takes the room the chrome can give up, for a
+   * canvas, say, that's better the wider it is: ws folds its sidebar to a
+   * rail beside the frame, as on its own such pages, and the rail opens
+   * over the page on hover. "standard": as anywhere else, which is where
+   * a page starts. The latest said is the one; ws goes back to standard
+   * when the page goes.
+   */
+  setChromeLayout(mode: V1.ChromeMode): void;
+
+  /**
    * go asks ws to go to this path in the plugin: /browse/PROJ-2. ws adds
    * it to its history (or, with replace, puts it in place of where it is)
    * and onNavigate follows. The app moves when it's told, not before.
@@ -287,6 +299,9 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
     told = name;
     send(name === undefined ? { type: "ws:here" } : { type: "ws:here", name });
   };
+  // The chrome layout ws was last told: it's told again only when it
+  // changes.
+  let layout: V1.ChromeMode = "standard";
   const on = <F>(fns: Set<F>, fn: F) => {
     fns.add(fn);
     return () => {
@@ -430,6 +445,12 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
         here.splice(here.indexOf(entry), 1);
         tellHere();
       };
+    },
+    setChromeLayout(mode) {
+      if (mode !== "expanded" && mode !== "standard") throw new TypeError(`setChromeLayout("${String(mode)}"): the layout is "expanded" or "standard".`);
+      if (mode === layout || closed) return;
+      layout = mode;
+      send({ type: "ws:chrome-layout", mode });
     },
     setTitle(title) {
       if (doc) doc.title = title;
