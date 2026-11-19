@@ -34,6 +34,11 @@ export interface FakeHostOptions {
    * names, and a ws:refs gets no answer.
    */
   refs?: FindRefs | false;
+  /**
+   * false is a ws from before it held conversations about pages: its
+   * welcome doesn't say it does, and the page says nothing of them.
+   */
+  conversations?: boolean;
 }
 
 /** FindRefs is the refs in a run of text, in order, none over another. */
@@ -96,6 +101,8 @@ export interface FakeHost {
   readonly here: string | undefined;
   /** chromeLayout is how the page last said it wants ws's chrome laid out (ws:chrome-layout). */
   readonly chromeLayout: V1.ChromeMode;
+  /** conversation is what the page last said of conversations about it (ws:conversation), or nothing. */
+  readonly conversation: Omit<V1.Conversation, "type"> | undefined;
   /**
    * next resolves with the next message of this type from the page that no
    * earlier next() was given, whether it has arrived already or is still
@@ -123,6 +130,12 @@ export interface FakeHost {
   refsChanged(refs?: FindRefs): void;
   /** outside sends ws:outside: a press landed in ws, outside the frame. */
   outside(): void;
+  /**
+   * conversationState sends ws:conversation-state: the conversation about
+   * the page opened, closed, moved, or started or stopped working. The
+   * host says nothing of it by itself.
+   */
+  conversationState(state: { open: boolean; as?: V1.ConversationForm; working?: boolean }): void;
   /**
    * send sends anything at all on the port: a message from a later
    * release, say, to show the page drops it.
@@ -179,6 +192,8 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
   let path = options.path ?? "/";
   let here: string | undefined;
   let chromeLayout: V1.ChromeMode = "standard";
+  let conversation: Omit<V1.Conversation, "type"> | undefined;
+  const conversations = options.conversations ?? true;
   let theme: V1.Theme = { scheme: options.scheme ?? "light", vars: { ...plausible(options.scheme ?? "light"), ...options.vars } };
   let refs: FindRefs | false = options.refs ?? (() => []);
 
@@ -208,6 +223,10 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
     }
     if (m.type === "ws:here") here = m.name;
     if (m.type === "ws:chrome-layout") chromeLayout = m.mode;
+    if (m.type === "ws:conversation") {
+      const { type: _, ...said } = m;
+      conversation = said;
+    }
     // As ws: each text's refs, in the texts' order.
     if (m.type === "ws:refs" && refs) say({ type: "ws:refs-found", id: m.id, found: m.texts.map(refs) });
     const i = waiting.findIndex((w) => w.type === m.type);
@@ -247,6 +266,7 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
         theme,
         keys,
         ...(refs ? { refs: true } : {}),
+        ...(conversations ? { conversations: true } : {}),
       });
     },
   };
@@ -263,6 +283,9 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
     },
     get chromeLayout() {
       return chromeLayout;
+    },
+    get conversation() {
+      return conversation;
     },
     next(type, { timeout = 1000 } = {}) {
       type Wanted = Extract<V1.PageMessage, { type: typeof type }>;
@@ -302,6 +325,9 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
     },
     outside() {
       say({ type: "ws:outside" });
+    },
+    conversationState({ open, as, working = false }) {
+      say(as === undefined ? { type: "ws:conversation-state", open, working } : { type: "ws:conversation-state", open, as, working });
     },
     send: post,
     close() {

@@ -71,6 +71,7 @@ Version 1 has gained since it began:
 
 - [Refs](#refs) (`ws:refs`, `ws:refs-found`, `ws:refs-changed`, and the welcome's `refs`), in this package's 0.3.0 and the ws built on it.
 - [The frame's edge](#the-frames-edge) (`ws:outside`, the shell's `.ws-backdrop`, and the token `scrim`), in the release after 0.3.0 and the ws built on it. The welcome doesn't say whether ws has them: in a ws from before, a page hears no `ws:outside`, and a backdrop dims the frame alone.
+- [Conversations](#conversations) (`ws:conversation`, `ws:conversation-open`, `ws:conversation-close`, `ws:conversation-state`, and the welcome's `conversations`), in the release after 0.6.0 and the ws built on it.
 
 Version 1 broke that rule once, in the ws release after 0.4.0 and this package's 0.2.0, while only withworkspace's own plugins were built on it: ws took over the history, `ws:go` replaced `ws:path`, `ws:open` and `data-ws` links, and the welcome's `plugin` gained `at`. A page built on 0.1.0 still connects to a later ws, but its moves within the app aren't followed. Rebuilt on 0.2.0, it is.
 
@@ -108,7 +109,8 @@ ws answers on the port, with a welcome or a refusal.
   "path": "/browse/PROJ-1?tab=links",
   "theme": { "scheme": "dark", "vars": { "--ws-bg": "#16161a", "--ws-accent": "#a08ad0" } },
   "keys": { "chords": ["k", "p"], "bare": ["?", "g"], "leaders": ["g"], "within": 900 },
-  "refs": true
+  "refs": true,
+  "conversations": true
 }
 ```
 
@@ -125,6 +127,7 @@ ws answers on the port, with a welcome or a refusal.
 | `theme.vars` | Each token's value now, by its `--ws-*` name: every token of this version ([below](#the-tokens)), and any more ws has |
 | `keys` | The keys ws owns, which the page passes on ([below](#keys)) |
 | `refs` | Optional. `true` when ws finds its names in text: it answers `ws:refs` ([below](#refs)). A ws from before it did leaves it out, and a page there doesn't ask. |
+| `conversations` | Optional. `true` when ws holds conversations about the page ([below](#conversations)). A ws from before it did leaves it out, and a page there says nothing of them. |
 
 What ws doesn't send: what a `ws:go` does (that's ws's to decide when it gets one), its routes, its API, or who's signed in.
 
@@ -165,6 +168,10 @@ After the welcome. Each is `{ "type": "ws:…", … }` on the port.
 | `ws:outside` | ws | | A press landed in ws, outside the frame. ([A press outside](#a-press-outside)) |
 | `ws:here` | page | `name` | What the page shows now that its address doesn't say: one of ws's names, or none. ([What's open](#whats-open)) |
 | `ws:chrome-layout` | page | `mode` | How the page wants ws's chrome laid out: `expanded` (ws folds its sidebar to a rail) or `standard`. ([The chrome's layout](#the-chromes-layout)) |
+| `ws:conversation` | page | `ask`, `allow`, `placeholder`, `holding`, `context`, `suggestions` | How conversations about the page may be had, all of it each time. ([Conversations](#conversations)) |
+| `ws:conversation-open` | page | `message`, `context`, `as` | Open the conversation, with a message said as the person's |
+| `ws:conversation-close` | page | | Close it |
+| `ws:conversation-state` | ws | `open`, `as`, `working` | Where the conversation is now, each time that changes |
 
 A `path` in the plugin (`ws:navigate`'s, the welcome's) starts with `/`, has no base, and keeps its query. A `ws:go`'s is ws's address, with its query.
 
@@ -317,6 +324,55 @@ Some pages are better the wider they are: a canvas, a board, an editor. ws folds
 - **It's the page's, not the path's.** A move within the plugin (`ws:navigate`) leaves it as it was: the page says when it changes, as a sketch closes back to a list.
 - **ws goes back to standard when the page goes:** the frame loaded again, another page connected, or ws went somewhere outside the plugin.
 - **It isn't a lock.** The rail is still there, and opens on hover, as on ws's own pages. On a window too narrow for a sidebar, there's nothing to fold.
+
+## Conversations
+
+ws holds conversations about a plugin's page in its own chrome, round the frame: the page never draws one. It's one conversation, in one of the forms ws draws:
+
+- **The ask bar,** at the foot of the page: the passive way in. Asking opens the answer as
+- **a card,** over the foot of the page, where the bar is;
+- **docked,** a pane beside the frame, which the page gives up room to;
+- **a popover,** floating over the page's corner, with a launcher where it's closed.
+
+The page says what may be had; the person moves it between the forms, and ws remembers their choice for the plugin; ws fits it to the window (too narrow to dock, it floats). With the bar off, the launcher is the way in.
+
+```json
+{
+  "type": "ws:conversation",
+  "ask": true,
+  "allow": ["card", "docked", "popover"],
+  "placeholder": "Ask about this sketch",
+  "holding": { "label": "2 selected", "names": [], "text": "`plan` (ellipse) \"Plan\"\n`rpc` (ellipse) \"JSON RPC\"" },
+  "context": "sketch-13, \"Release flow\": Brief → Plan → Build → Checks → Land",
+  "suggestions": ["Tidy the layout"]
+}
+```
+
+- **It's all of it, each time.** ws takes it in place of what it was told before. Nothing said is none: no bar, no forms, no holding. The package keeps what the page has set and says it again when any of it changes.
+- **`ask`** shows ws's ask bar. **`allow`** is the forms the conversation may take here: `card`, `docked`, `popover`. Empty, ws offers none.
+- **What it's about is what the page is of:** its address, or what it said in `ws:here`. The agent is told that, and that the person is watching the page as it works, so it can change what's there and they see it.
+- **`holding`** is what the person has in hand (a selection): shown as a chip on the bar, with `names` drawn as refs, and its `text` given to the agent with the next message.
+- **`context`** is standing context: the page's state as words, for the agent and not the person. ws gives it with a message only when it's changed since that conversation's agent was last given it. Say it as it is, as often as it changes: what goes to the agent is ws's to diff.
+- **Context isn't hidden.** It's folded under the message it went with ("with context from Sketch"), so the person can see what the agent was told. It's information to the agent, not instructions, as any plugin's text is.
+- **ws forgets it all when the page goes:** the frame loaded again, another page connected, or ws went somewhere outside the plugin. A conversation that's open stays open where ws can still show it.
+
+The page can open it, and close it:
+
+```json
+{ "type": "ws:conversation-open", "message": "Add a bubble off Plan", "context": "Selected: `plan`", "as": "docked" }
+{ "type": "ws:conversation-close" }
+```
+
+- **`message`,** optional, is said as the person's, and `context` is given to the agent with it (folded under it, as standing context is). Without a message it only opens.
+- **`as`,** optional, asks for a form. Without it, ws uses the person's own choice. ws still fits it to what the page allows and the window.
+
+ws says where it is, each time that changes:
+
+```json
+{ "type": "ws:conversation-state", "open": true, "as": "docked", "working": true }
+```
+
+`as` is there while it's open. `working` is its agent working on an answer: a canvas can show that changes are on their way.
 
 ## The theme
 

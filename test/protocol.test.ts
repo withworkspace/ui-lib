@@ -49,7 +49,7 @@ void _names;
 describe("/protocol", () => {
   test("exports protocol 1's versions, tokens, guards and V1, and nothing that runs", () => {
     expect(Object.keys(protocol).sort()).toEqual(["PROTOCOL_VERSIONS", "TOKENS", "V1", "chooseVersion", "isConnect", "isRefuse"]);
-    expect(Object.keys(V1).sort()).toEqual(["isFoundRef", "isHostMessage", "isPageMessage", "isWelcome"]);
+    expect(Object.keys(V1).sort()).toEqual(["CONVERSATION_FORMS", "isConversationForm", "isFoundRef", "isHostMessage", "isPageMessage", "isWelcome"]);
     expect(PROTOCOL_VERSIONS).toEqual([1]);
   });
 
