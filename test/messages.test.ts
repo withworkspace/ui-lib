@@ -88,6 +88,41 @@ describe("from the page", () => {
     expect(host.sent.filter((m) => m.type === "ws:here")).toEqual([{ type: "ws:here", name: "PROJ-2" }]);
   });
 
+  test("wantRoom says the page wants the room until every part that wanted it gives it back", async () => {
+    const { host, ws } = await connected();
+    const rooms = () => host.sent.filter((m) => m.type === "ws:room");
+
+    const canvas = ws.wantRoom();
+    const panel = ws.wantRoom();
+    await settled(ws, host);
+    expect(host.room).toBe(true);
+
+    canvas();
+    canvas(); // twice is once
+    await settled(ws, host);
+    expect(host.room).toBe(true);
+
+    panel();
+    await settled(ws, host);
+    expect(host.room).toBe(false);
+    // ws is told only when it changes.
+    expect(rooms()).toEqual([
+      { type: "ws:room", room: true },
+      { type: "ws:room", room: false },
+    ]);
+  });
+
+  test("closing forgets the room wanted, and tells ws nothing more", async () => {
+    const { host, ws } = await connected();
+    const back = ws.wantRoom();
+    await settled(ws, host);
+
+    ws.close();
+    back();
+
+    expect(host.sent.filter((m) => m.type === "ws:room")).toEqual([{ type: "ws:room", room: true }]);
+  });
+
   test("open sends ws:go as it's given, and leaves what it does to ws", async () => {
     const { host, ws } = await connected({ path: "/" });
 

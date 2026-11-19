@@ -29,6 +29,8 @@ const fromPage = [
   { type: "ws:refs", id: 1, texts: ["See PROJ-12 for more", "demo is a repo"] } satisfies V1.Refs,
   { type: "ws:here", name: "PROJ-12" } satisfies V1.Here,
   { type: "ws:here" } satisfies V1.Here,
+  { type: "ws:room", room: true } satisfies V1.Room,
+  { type: "ws:room", room: false } satisfies V1.Room,
 ] satisfies V1.PageMessage[];
 const fromHost = [
   welcome,
@@ -139,6 +141,8 @@ describe("the guards", () => {
     expect(V1.isPageMessage({ type: "ws:outside" })).toBe(false); // ws's to say, not a page's
     expect(V1.isPageMessage({ type: "ws:here", name: 12 })).toBe(false);
     expect(V1.isPageMessage({ type: "ws:here", name: "" })).toBe(false); // none is no name, not an empty one
+    expect(V1.isPageMessage({ type: "ws:room" })).toBe(false);
+    expect(V1.isPageMessage({ type: "ws:room", room: "yes" })).toBe(false);
     expect(V1.isPageMessage(undefined)).toBe(false);
   });
 

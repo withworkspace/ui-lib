@@ -5,9 +5,10 @@
 // keeps the history: the frame never adds to it. Which words are ws's
 // names is ws's to say too: the app asks, and draws what it's told. A
 // press in ws, outside the frame, is one the page never sees: ws says it,
-// and what closes on a press elsewhere closes on it too. And what the
-// page shows beyond its address (a thing in a panel) the app says, for
-// ws's Find to start from.
+// and what closes on a press elsewhere closes on it too. What the page
+// shows beyond its address (a thing in a panel) the app says, for ws's
+// Find to start from. And a page that wants the room says so, and ws
+// folds its sidebar.
 
 import { mark } from "./mark.js";
 import { PROTOCOL_VERSIONS, type Connect, type ProtocolVersion, V1, isRefuse } from "./protocol.js";
@@ -174,6 +175,17 @@ export interface Client {
   pushHere(name: string): () => void;
 
   /**
+   * wantRoom says the page wants the room: a canvas, say, that's better
+   * the wider it is. ws folds its sidebar to a rail beside the frame, as
+   * on its own such pages; the rail opens over the page on hover.
+   *
+   * It returns a function that gives the room back. Several parts of the
+   * page may want it: ws keeps its sidebar folded until each has given it
+   * back. ws forgets it when the page goes.
+   */
+  wantRoom(): () => void;
+
+  /**
    * go asks ws to go to this path in the plugin: /browse/PROJ-2. ws adds
    * it to its history (or, with replace, puts it in place of where it is)
    * and onNavigate follows. The app moves when it's told, not before.
@@ -286,6 +298,16 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
     if (name === told || closed) return;
     told = name;
     send(name === undefined ? { type: "ws:here" } : { type: "ws:here", name });
+  };
+  // How many parts of the page want the room, and whether ws was last
+  // told it does: it's told again only when that changes.
+  let wanting = 0;
+  let toldRoom = false;
+  const tellRoom = () => {
+    const room = wanting > 0;
+    if (room === toldRoom || closed) return;
+    toldRoom = room;
+    send({ type: "ws:room", room });
   };
   const on = <F>(fns: Set<F>, fn: F) => {
     fns.add(fn);
@@ -431,6 +453,17 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
         tellHere();
       };
     },
+    wantRoom() {
+      wanting++;
+      tellRoom();
+      let gone = false;
+      return () => {
+        if (gone) return;
+        gone = true;
+        wanting--;
+        tellRoom();
+      };
+    },
     setTitle(title) {
       if (doc) doc.title = title;
       send({ type: "ws:title", title });
@@ -443,6 +476,8 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
       for (const stop of [...dismissals]) stop();
       // ws forgets what's here when the page goes: it isn't told.
       here.length = 0;
+      // And whether it wanted the room.
+      wanting = 0;
       // Nobody's left to answer: what's still asked for finds nothing.
       closed = true;
       for (const b of asking.splice(0)) b.found(b.texts.map(() => []));

@@ -173,6 +173,18 @@ export interface Here {
   name?: string;
 }
 
+/**
+ * Room says whether the page wants the room: a canvas, a board, an editor
+ * that's better the wider it is. While it does, ws folds its sidebar to a
+ * rail beside the frame, as it does for its own such pages (a mission, a
+ * review); the rail opens over the page on hover. ws forgets it when the
+ * page goes.
+ */
+export interface Room {
+  type: "ws:room";
+  room: boolean;
+}
+
 // From ws.
 
 /**
@@ -224,7 +236,7 @@ export interface Outside {
 }
 
 /** What a page sends on the port. */
-export type PageMessage = Go | Title | Key | Refs | Here;
+export type PageMessage = Go | Title | Key | Refs | Here | Room;
 /** What ws sends on the port. */
 export type HostMessage = Welcome | Refuse | Navigate | ThemeChanged | Changed | RefsFound | RefsChanged | Outside;
 
@@ -287,6 +299,8 @@ export function isPageMessage(m: unknown): m is PageMessage {
       return isIndex(m.id) && isStrings(m.texts);
     case "ws:here":
       return m.name === undefined || (isString(m.name) && m.name !== "");
+    case "ws:room":
+      return typeof m.room === "boolean";
     default:
       return false;
   }
