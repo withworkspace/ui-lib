@@ -159,6 +159,20 @@ export interface Refs {
   texts: string[];
 }
 
+/**
+ * Here is what the page shows now that its address doesn't say: a thing
+ * open in a panel over a list, say. name is one of ws's names (RAM-123, a
+ * mission's slug, demo#12); none, when the page shows nothing beyond its
+ * address. Until a page says one, and once it says none, ws reads what the
+ * page is of from its address, as the thing's kind said its pages are.
+ * ws's Find (⌘K) starts from it: what can be done to it, and what's linked
+ * to it. ws forgets it when the page goes.
+ */
+export interface Here {
+  type: "ws:here";
+  name?: string;
+}
+
 // From ws.
 
 /**
@@ -210,7 +224,7 @@ export interface Outside {
 }
 
 /** What a page sends on the port. */
-export type PageMessage = Go | Title | Key | Refs;
+export type PageMessage = Go | Title | Key | Refs | Here;
 /** What ws sends on the port. */
 export type HostMessage = Welcome | Refuse | Navigate | ThemeChanged | Changed | RefsFound | RefsChanged | Outside;
 
@@ -271,6 +285,8 @@ export function isPageMessage(m: unknown): m is PageMessage {
       return isString(m.key) && [m.meta, m.ctrl, m.shift, m.alt].every((v) => typeof v === "boolean");
     case "ws:refs":
       return isIndex(m.id) && isStrings(m.texts);
+    case "ws:here":
+      return m.name === undefined || (isString(m.name) && m.name !== "");
     default:
       return false;
   }

@@ -169,6 +169,18 @@ useEffect(() => (open ? ws.dismissOutside([button.current!, menu.current!], () =
 
 The class makes it cover the frame, in ws's scrim, fading in as ws's own does. Where the dialog sits in it is the app's to style. There's nothing to call, and nothing of this package's in it: ws watches the page for the class, so both halves come and go in the same frame. A press on ws's dimmed side comes as any press in ws does, so `dismissOutside(dialog, close)` closes on either half. ws's keys and back still work while it's dimmed: it isn't a lock. [`PROTOCOL.md`](PROTOCOL.md#the-frames-edge) has the rest.
 
+### What's open beyond the address
+
+ws's Find (⌘K) starts from what the page is of: what can be done to it, and what's linked to it. For a page of a thing's own, ws knows that from the address already, by where the thing's kind said one opens (`/issue/{ref}`), and there's nothing to do.
+
+What the address doesn't say, the app does: an issue open in a panel over the board, say. `pushHere` takes one of ws's names, and returns what takes it off:
+
+```tsx
+useEffect(() => (issue ? ws.pushHere(issue.key) : undefined), [ws, issue?.key]);
+```
+
+They stack: a panel, then a dialog over it, and the latest still pushed is the one. They can be taken off in any order, and once all are, ws goes back to the address. ws forgets them all when the page goes, so a page that's left never needs to.
+
 ### When it can't connect
 
 `connect()` rejects with one of two errors, and an app shows either in the page:

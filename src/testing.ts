@@ -90,6 +90,11 @@ export interface FakeHost {
    */
   readonly path: string;
   /**
+   * here is the name the page last said it shows beyond its address
+   * (ws:here), or none.
+   */
+  readonly here: string | undefined;
+  /**
    * next resolves with the next message of this type from the page that no
    * earlier next() was given, whether it has arrived already or is still
    * to come. It rejects if none comes within the timeout (1000ms by
@@ -170,6 +175,7 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
   const name = options.name ?? "fake";
   const keys = options.keys ?? { chords: ["k", "p"], bare: ["?", "g"], leaders: ["g"], within: 900 };
   let path = options.path ?? "/";
+  let here: string | undefined;
   let theme: V1.Theme = { scheme: options.scheme ?? "light", vars: { ...plausible(options.scheme ?? "light"), ...options.vars } };
   let refs: FindRefs | false = options.refs ?? (() => []);
 
@@ -197,6 +203,7 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
       if (!path.startsWith("/")) path = `/${path}`;
       say({ type: "ws:navigate", path });
     }
+    if (m.type === "ws:here") here = m.name;
     // As ws: each text's refs, in the texts' order.
     if (m.type === "ws:refs" && refs) say({ type: "ws:refs-found", id: m.id, found: m.texts.map(refs) });
     const i = waiting.findIndex((w) => w.type === m.type);
@@ -246,6 +253,9 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
     sent,
     get path() {
       return path;
+    },
+    get here() {
+      return here;
     },
     next(type, { timeout = 1000 } = {}) {
       type Wanted = Extract<V1.PageMessage, { type: typeof type }>;

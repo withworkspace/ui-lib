@@ -50,6 +50,44 @@ describe("from the page", () => {
     expect(await host.next("ws:title")).toEqual({ type: "ws:title", title: "PROJ-2 Token cache" });
   });
 
+  test("pushHere says the latest name still pushed, and none once all are taken off", async () => {
+    const { host, ws } = await connected();
+    const heres = () => host.sent.filter((m) => m.type === "ws:here");
+
+    const panel = ws.pushHere("PROJ-2");
+    const dialog = ws.pushHere("PROJ-7");
+    await settled(ws, host);
+    expect(host.here).toBe("PROJ-7");
+
+    // Taken off out of order: the panel goes first, the dialog's still up.
+    panel();
+    await settled(ws, host);
+    expect(host.here).toBe("PROJ-7");
+
+    dialog();
+    dialog(); // twice is once
+    await settled(ws, host);
+    expect(host.here).toBeUndefined();
+    // ws is told only when the latest changes.
+    expect(heres()).toEqual([
+      { type: "ws:here", name: "PROJ-2" },
+      { type: "ws:here", name: "PROJ-7" },
+      { type: "ws:here" },
+    ]);
+    expect(() => ws.pushHere("")).toThrow(TypeError);
+  });
+
+  test("closing forgets what's here, and tells ws nothing more", async () => {
+    const { host, ws } = await connected();
+    const off = ws.pushHere("PROJ-2");
+    await settled(ws, host);
+
+    ws.close();
+    off();
+
+    expect(host.sent.filter((m) => m.type === "ws:here")).toEqual([{ type: "ws:here", name: "PROJ-2" }]);
+  });
+
   test("open sends ws:go as it's given, and leaves what it does to ws", async () => {
     const { host, ws } = await connected({ path: "/" });
 
