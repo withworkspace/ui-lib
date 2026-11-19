@@ -181,15 +181,18 @@ useEffect(() => (issue ? ws.pushHere(issue.key) : undefined), [ws, issue?.key]);
 
 They stack: a panel, then a dialog over it, and the latest still pushed is the one. They can be taken off in any order, and once all are, ws goes back to the address. ws forgets them all when the page goes, so a page that's left never needs to.
 
-### A page that wants the room
+### The chrome's layout
 
-A canvas or a board is better the wider it is. ws folds its sidebar to a rail on its own such pages, and an app asks for the same with `wantRoom`, which returns what gives the room back:
+A canvas or a board is better the wider it is. ws folds its sidebar to a rail on its own such pages, and an app asks for the same with `setChromeLayout`:
 
 ```tsx
-useEffect(() => ws.wantRoom(), [ws]); // while this screen is up
+useEffect(() => {
+  ws.setChromeLayout("expanded"); // while this screen is up
+  return () => ws.setChromeLayout("standard");
+}, [ws]);
 ```
 
-Each part that wants it gives it back itself, and the sidebar opens again once all have. The rail opens over the page on hover, as on ws's own pages. ws forgets it when the page goes.
+`"expanded"` folds the sidebar to a rail, which opens over the page on hover, as on ws's own pages. `"standard"` is ws's chrome as anywhere else, where a page starts. The latest said is the one, and ws goes back to standard when the page goes.
 
 ### When it can't connect
 

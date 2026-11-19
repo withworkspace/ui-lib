@@ -94,8 +94,8 @@ export interface FakeHost {
    * (ws:here), or none.
    */
   readonly here: string | undefined;
-  /** room is whether the page last said it wants the room (ws:room). */
-  readonly room: boolean;
+  /** chromeLayout is how the page last said it wants ws's chrome laid out (ws:chrome-layout). */
+  readonly chromeLayout: V1.ChromeMode;
   /**
    * next resolves with the next message of this type from the page that no
    * earlier next() was given, whether it has arrived already or is still
@@ -178,7 +178,7 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
   const keys = options.keys ?? { chords: ["k", "p"], bare: ["?", "g"], leaders: ["g"], within: 900 };
   let path = options.path ?? "/";
   let here: string | undefined;
-  let room = false;
+  let chromeLayout: V1.ChromeMode = "standard";
   let theme: V1.Theme = { scheme: options.scheme ?? "light", vars: { ...plausible(options.scheme ?? "light"), ...options.vars } };
   let refs: FindRefs | false = options.refs ?? (() => []);
 
@@ -207,7 +207,7 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
       say({ type: "ws:navigate", path });
     }
     if (m.type === "ws:here") here = m.name;
-    if (m.type === "ws:room") room = m.room;
+    if (m.type === "ws:chrome-layout") chromeLayout = m.mode;
     // As ws: each text's refs, in the texts' order.
     if (m.type === "ws:refs" && refs) say({ type: "ws:refs-found", id: m.id, found: m.texts.map(refs) });
     const i = waiting.findIndex((w) => w.type === m.type);
@@ -261,8 +261,8 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
     get here() {
       return here;
     },
-    get room() {
-      return room;
+    get chromeLayout() {
+      return chromeLayout;
     },
     next(type, { timeout = 1000 } = {}) {
       type Wanted = Extract<V1.PageMessage, { type: typeof type }>;

@@ -88,39 +88,35 @@ describe("from the page", () => {
     expect(host.sent.filter((m) => m.type === "ws:here")).toEqual([{ type: "ws:here", name: "PROJ-2" }]);
   });
 
-  test("wantRoom says the page wants the room until every part that wanted it gives it back", async () => {
+  test("setChromeLayout says the layout when it changes", async () => {
     const { host, ws } = await connected();
-    const rooms = () => host.sent.filter((m) => m.type === "ws:room");
+    const said = () => host.sent.filter((m) => m.type === "ws:chrome-layout");
 
-    const canvas = ws.wantRoom();
-    const panel = ws.wantRoom();
+    ws.setChromeLayout("standard"); // where it starts: nothing to say
+    ws.setChromeLayout("expanded");
+    ws.setChromeLayout("expanded");
     await settled(ws, host);
-    expect(host.room).toBe(true);
+    expect(host.chromeLayout).toBe("expanded");
 
-    canvas();
-    canvas(); // twice is once
+    ws.setChromeLayout("standard");
     await settled(ws, host);
-    expect(host.room).toBe(true);
-
-    panel();
-    await settled(ws, host);
-    expect(host.room).toBe(false);
-    // ws is told only when it changes.
-    expect(rooms()).toEqual([
-      { type: "ws:room", room: true },
-      { type: "ws:room", room: false },
+    expect(host.chromeLayout).toBe("standard");
+    expect(said()).toEqual([
+      { type: "ws:chrome-layout", mode: "expanded" },
+      { type: "ws:chrome-layout", mode: "standard" },
     ]);
+    expect(() => ws.setChromeLayout("wide" as never)).toThrow(TypeError);
   });
 
-  test("closing forgets the room wanted, and tells ws nothing more", async () => {
+  test("closed, it tells ws no layout: ws goes back to standard itself", async () => {
     const { host, ws } = await connected();
-    const back = ws.wantRoom();
+    ws.setChromeLayout("expanded");
     await settled(ws, host);
 
     ws.close();
-    back();
+    ws.setChromeLayout("standard");
 
-    expect(host.sent.filter((m) => m.type === "ws:room")).toEqual([{ type: "ws:room", room: true }]);
+    expect(host.sent.filter((m) => m.type === "ws:chrome-layout")).toEqual([{ type: "ws:chrome-layout", mode: "expanded" }]);
   });
 
   test("open sends ws:go as it's given, and leaves what it does to ws", async () => {

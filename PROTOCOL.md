@@ -164,7 +164,7 @@ After the welcome. Each is `{ "type": "ws:…", … }` on the port.
 | `ws:refs-changed` | ws | | What there is to name changed: what a `ws:refs` found may be different now. ws says it only to a page that has asked. |
 | `ws:outside` | ws | | A press landed in ws, outside the frame. ([A press outside](#a-press-outside)) |
 | `ws:here` | page | `name` | What the page shows now that its address doesn't say: one of ws's names, or none. ([What's open](#whats-open)) |
-| `ws:room` | page | `room` | Whether the page wants the room: ws folds its sidebar to a rail while it does. ([The room](#the-room)) |
+| `ws:chrome-layout` | page | `mode` | How the page wants ws's chrome laid out: `expanded` (ws folds its sidebar to a rail) or `standard`. ([The chrome's layout](#the-chromes-layout)) |
 
 A `path` in the plugin (`ws:navigate`'s, the welcome's) starts with `/`, has no base, and keeps its query. A `ws:go`'s is ws's address, with its query.
 
@@ -304,19 +304,19 @@ ws's Find starts from what the page is of. ws reads that from the page's address
 - **ws forgets it when the page goes:** the frame loaded again, another page connected, or ws went somewhere outside the plugin. A move within the plugin (`ws:navigate`) isn't one: the page is still there, and what it said stands until it says otherwise, so a panel open over a list stays what's open while a filter changes the address.
 - **A name ws can't read is as none:** ws goes by the address.
 
-## The room
+## The chrome's layout
 
 Some pages are better the wider they are: a canvas, a board, an editor. ws folds its sidebar to a rail on its own such pages (a mission, a review), and the rail opens over the page on hover. A plugin's page asks for the same:
 
 ```json
-{ "type": "ws:room", "room": true }
+{ "type": "ws:chrome-layout", "mode": "expanded" }
 ```
 
-- **`room` is whether it wants it now.** `{ "type": "ws:room", "room": false }` gives it back, and the sidebar opens again.
-- **It's the page's, not the path's.** A move within the plugin (`ws:navigate`) leaves it as it was: the page says when it changes, as a drawing closes back to a list.
-- **ws forgets it when the page goes:** the frame loaded again, another page connected, or ws went somewhere outside the plugin.
+- **`mode` is `expanded` or `standard`.** `expanded`: the page takes the room ws's chrome can give up, which is the sidebar folded to a rail. `standard`: ws's chrome as anywhere else, which is where a page starts. A mode a ws doesn't know is dropped, as any message it doesn't know is.
+- **The latest said is the one.** The package says it only when it changes.
+- **It's the page's, not the path's.** A move within the plugin (`ws:navigate`) leaves it as it was: the page says when it changes, as a sketch closes back to a list.
+- **ws goes back to standard when the page goes:** the frame loaded again, another page connected, or ws went somewhere outside the plugin.
 - **It isn't a lock.** The rail is still there, and opens on hover, as on ws's own pages. On a window too narrow for a sidebar, there's nothing to fold.
-- **The package counts.** Each part of the page that wants the room (`wantRoom()`) gives it back itself, and ws is told only when the first wants it and the last gives it back.
 
 ## The theme
 

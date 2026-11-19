@@ -7,8 +7,8 @@
 // press in ws, outside the frame, is one the page never sees: ws says it,
 // and what closes on a press elsewhere closes on it too. What the page
 // shows beyond its address (a thing in a panel) the app says, for ws's
-// Find to start from. And a page that wants the room says so, and ws
-// folds its sidebar.
+// Find to start from. And a page says how it wants ws's chrome laid out
+// round it: a canvas has ws fold its sidebar.
 
 import { mark } from "./mark.js";
 import { PROTOCOL_VERSIONS, type Connect, type ProtocolVersion, V1, isRefuse } from "./protocol.js";
@@ -175,15 +175,15 @@ export interface Client {
   pushHere(name: string): () => void;
 
   /**
-   * wantRoom says the page wants the room: a canvas, say, that's better
-   * the wider it is. ws folds its sidebar to a rail beside the frame, as
-   * on its own such pages; the rail opens over the page on hover.
-   *
-   * It returns a function that gives the room back. Several parts of the
-   * page may want it: ws keeps its sidebar folded until each has given it
-   * back. ws forgets it when the page goes.
+   * setChromeLayout says how the page wants ws's chrome laid out round it.
+   * "expanded": the page takes the room the chrome can give up, for a
+   * canvas, say, that's better the wider it is: ws folds its sidebar to a
+   * rail beside the frame, as on its own such pages, and the rail opens
+   * over the page on hover. "standard": as anywhere else, which is where
+   * a page starts. The latest said is the one; ws goes back to standard
+   * when the page goes.
    */
-  wantRoom(): () => void;
+  setChromeLayout(mode: V1.ChromeMode): void;
 
   /**
    * go asks ws to go to this path in the plugin: /browse/PROJ-2. ws adds
@@ -299,16 +299,9 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
     told = name;
     send(name === undefined ? { type: "ws:here" } : { type: "ws:here", name });
   };
-  // How many parts of the page want the room, and whether ws was last
-  // told it does: it's told again only when that changes.
-  let wanting = 0;
-  let toldRoom = false;
-  const tellRoom = () => {
-    const room = wanting > 0;
-    if (room === toldRoom || closed) return;
-    toldRoom = room;
-    send({ type: "ws:room", room });
-  };
+  // The chrome layout ws was last told: it's told again only when it
+  // changes.
+  let layout: V1.ChromeMode = "standard";
   const on = <F>(fns: Set<F>, fn: F) => {
     fns.add(fn);
     return () => {
@@ -453,16 +446,11 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
         tellHere();
       };
     },
-    wantRoom() {
-      wanting++;
-      tellRoom();
-      let gone = false;
-      return () => {
-        if (gone) return;
-        gone = true;
-        wanting--;
-        tellRoom();
-      };
+    setChromeLayout(mode) {
+      if (mode !== "expanded" && mode !== "standard") throw new TypeError(`setChromeLayout("${String(mode)}"): the layout is "expanded" or "standard".`);
+      if (mode === layout || closed) return;
+      layout = mode;
+      send({ type: "ws:chrome-layout", mode });
     },
     setTitle(title) {
       if (doc) doc.title = title;
@@ -476,8 +464,6 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
       for (const stop of [...dismissals]) stop();
       // ws forgets what's here when the page goes: it isn't told.
       here.length = 0;
-      // And whether it wanted the room.
-      wanting = 0;
       // Nobody's left to answer: what's still asked for finds nothing.
       closed = true;
       for (const b of asking.splice(0)) b.found(b.texts.map(() => []));
