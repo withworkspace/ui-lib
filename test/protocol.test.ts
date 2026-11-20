@@ -27,6 +27,8 @@ const fromPage = [
   { type: "ws:title", title: "PROJ-2 Token cache" } satisfies V1.Title,
   { type: "ws:key", key: "k", meta: true, ctrl: false, shift: false, alt: false } satisfies V1.Key,
   { type: "ws:refs", id: 1, texts: ["See PROJ-12 for more", "demo is a repo"] } satisfies V1.Refs,
+  { type: "ws:hover", ref: "…", box: { x: 212, y: 96.5, width: 54, height: 18 } } satisfies V1.Hover,
+  { type: "ws:hover" } satisfies V1.Hover,
   { type: "ws:here", name: "PROJ-12" } satisfies V1.Here,
   { type: "ws:here" } satisfies V1.Here,
   { type: "ws:chrome-layout", mode: "expanded" } satisfies V1.ChromeLayout,
@@ -49,7 +51,7 @@ void _names;
 describe("/protocol", () => {
   test("exports protocol 1's versions, tokens, guards and V1, and nothing that runs", () => {
     expect(Object.keys(protocol).sort()).toEqual(["PROTOCOL_VERSIONS", "TOKENS", "V1", "chooseVersion", "isConnect", "isRefuse"]);
-    expect(Object.keys(V1).sort()).toEqual(["CONVERSATION_FORMS", "isConversationForm", "isFoundRef", "isHostMessage", "isPageMessage", "isWelcome"]);
+    expect(Object.keys(V1).sort()).toEqual(["CONVERSATION_FORMS", "isBox", "isConversationForm", "isFoundRef", "isHostMessage", "isPageMessage", "isWelcome"]);
     expect(PROTOCOL_VERSIONS).toEqual([1]);
   });
 
@@ -139,6 +141,12 @@ describe("the guards", () => {
     expect(V1.isPageMessage({ type: "ws:refs", texts: ["PROJ-12"] })).toBe(false);
     expect(V1.isPageMessage({ type: "ws:refs", id: 1, texts: "PROJ-12" })).toBe(false);
     expect(V1.isPageMessage({ type: "ws:outside" })).toBe(false); // ws's to say, not a page's
+    expect(V1.isPageMessage({ type: "ws:hover", ref: "…" })).toBe(false); // a ref is said with where it is
+    expect(V1.isPageMessage({ type: "ws:hover", box: { x: 0, y: 0, width: 1, height: 1 } })).toBe(false);
+    expect(V1.isPageMessage({ type: "ws:hover", ref: "", box: { x: 0, y: 0, width: 1, height: 1 } })).toBe(false);
+    expect(V1.isPageMessage({ type: "ws:hover", ref: "…", box: { x: 0, y: 0, width: -1, height: 1 } })).toBe(false);
+    expect(V1.isPageMessage({ type: "ws:hover", ref: "…", box: { x: 0, y: Number.NaN, width: 1, height: 1 } })).toBe(false);
+    expect(V1.isPageMessage({ type: "ws:hover", ref: "…", box: { x: -40, y: 0, width: 0, height: 0 } })).toBe(true); // off the frame's edge, and no size, is still somewhere
     expect(V1.isPageMessage({ type: "ws:here", name: 12 })).toBe(false);
     expect(V1.isPageMessage({ type: "ws:here", name: "" })).toBe(false); // none is no name, not an empty one
     expect(V1.isPageMessage({ type: "ws:chrome-layout" })).toBe(false);

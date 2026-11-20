@@ -1,8 +1,8 @@
 // A fake host: ws, without ws. It answers a page's ws:connect as ws web
 // does, from the same types, and lets a test say what ws would (a move, a
 // theme, a change) and see what the page said. Like ws, it follows a
-// ws:go into the plugin with a ws:navigate, and answers a ws:refs with
-// what it's been told to find. It needs no DOM: it runs on a
+// ws:go into the plugin with a ws:navigate, answers a ws:refs with what
+// it's been told to find, and keeps the ref the page said the pointer's on. It needs no DOM: it runs on a
 // MessageChannel, which Node has.
 
 import { type Connect, type Refuse, TOKENS, type Token, V1, chooseVersion, isConnect } from "./protocol.js";
@@ -99,6 +99,11 @@ export interface FakeHost {
    * (ws:here), or none.
    */
   readonly here: string | undefined;
+  /**
+   * hover is the ref the page last said the pointer's on, with where its
+   * words are (ws:hover), or none: what ws would show a card for.
+   */
+  readonly hover: { ref: string; box: V1.Box } | undefined;
   /** chromeLayout is how the page last said it wants ws's chrome laid out (ws:chrome-layout). */
   readonly chromeLayout: V1.ChromeMode;
   /** conversation is what the page last said of conversations about it (ws:conversation), or nothing. */
@@ -191,6 +196,7 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
   const keys = options.keys ?? { chords: ["k", "p"], bare: ["?", "g"], leaders: ["g"], within: 900 };
   let path = options.path ?? "/";
   let here: string | undefined;
+  let hover: { ref: string; box: V1.Box } | undefined;
   let chromeLayout: V1.ChromeMode = "standard";
   let conversation: Omit<V1.Conversation, "type"> | undefined;
   const conversations = options.conversations ?? true;
@@ -222,6 +228,7 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
       say({ type: "ws:navigate", path });
     }
     if (m.type === "ws:here") here = m.name;
+    if (m.type === "ws:hover") hover = m.ref !== undefined && m.box ? { ref: m.ref, box: m.box } : undefined;
     if (m.type === "ws:chrome-layout") chromeLayout = m.mode;
     if (m.type === "ws:conversation") {
       const { type: _, ...said } = m;
@@ -280,6 +287,9 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
     },
     get here() {
       return here;
+    },
+    get hover() {
+      return hover;
     },
     get chromeLayout() {
       return chromeLayout;

@@ -48,6 +48,7 @@ What a page can rely on:
 - **There's no `<base>`.** The app reaches the plugin's HTTP by the path the welcome gives (`plugin.api`), not by relative URLs.
 - **The page is ws's origin,** and its content security policy allows scripts, styles, fonts and connections from that origin only, and no inline script. Inline style is allowed. Images may also be `data:` or `https:`.
 - **A ref is styled,** in a ws that finds them: a link drawn as [a ref is](#refs) looks as a ref does in ws, with no styles of the app's.
+- **A ref has its card,** in a ws that draws them: while the pointer's on a link drawn as a ref, ws shows the ref's card by it, over the frame ([Its card](#its-card)).
 - **A backdrop is styled, and ws dims beside it,** in a ws that does: an element of the class `ws-backdrop` covers the frame in ws's own scrim, and for as long as the page has one ws dims what's beside the frame ([A backdrop](#a-backdrop)).
 
 What it can't:
@@ -71,6 +72,7 @@ Version 1 has gained since it began:
 
 - [Refs](#refs) (`ws:refs`, `ws:refs-found`, `ws:refs-changed`, and the welcome's `refs`), in this package's 0.3.0 and the ws built on it.
 - [The frame's edge](#the-frames-edge) (`ws:outside`, the shell's `.ws-backdrop`, and the token `scrim`), in the release after 0.3.0 and the ws built on it. The welcome doesn't say whether ws has them: in a ws from before, a page hears no `ws:outside`, and a backdrop dims the frame alone.
+- [A ref's card](#its-card) (`ws:hover`), in the release after 0.8.0 and the ws built on it. The welcome doesn't say whether ws has it: in a ws from before, a ref in a page has no card.
 - [Conversations](#conversations) (`ws:conversation`, `ws:conversation-open`, `ws:conversation-close`, `ws:conversation-state`, and the welcome's `conversations`), in the release after 0.6.0 and the ws built on it.
 
 Version 1 broke that rule once, in the ws release after 0.4.0 and this package's 0.2.0, while only withworkspace's own plugins were built on it: ws took over the history, `ws:go` replaced `ws:path`, `ws:open` and `data-ws` links, and the welcome's `plugin` gained `at`. A page built on 0.1.0 still connects to a later ws, but its moves within the app aren't followed. Rebuilt on 0.2.0, it is.
@@ -165,6 +167,7 @@ After the welcome. Each is `{ "type": "ws:…", … }` on the port.
 | `ws:refs` | page | `id`, `texts` | Which of ws's names are in these runs of text? `id` is the page's number for the asking. ([Refs](#refs)) |
 | `ws:refs-found` | ws | `id`, `found` | The answer to the `ws:refs` of that `id`: for each of its texts, in their order, the refs in it |
 | `ws:refs-changed` | ws | | What there is to name changed: what a `ws:refs` found may be different now. ws says it only to a page that has asked. |
+| `ws:hover` | page | `ref`, `box` | The ref the pointer's on now, and where its words are in the page, or none: ws draws the ref's card by them. ([Its card](#its-card)) |
 | `ws:outside` | ws | | A press landed in ws, outside the frame. ([A press outside](#a-press-outside)) |
 | `ws:here` | page | `name` | What the page shows now that its address doesn't say: one of ws's names, or none. ([What's open](#whats-open)) |
 | `ws:chrome-layout` | page | `mode` | How the page wants ws's chrome laid out: `expanded` (ws folds its sidebar to a rail) or `standard`. ([The chrome's layout](#the-chromes-layout)) |
@@ -256,6 +259,33 @@ A ref is a link, so it's followed as any link in the page is ([History](#history
 | `--ws-ref-accent` | Its `accent`, if it has one |
 
 The link's words are the name as it was written.
+
+### Its card
+
+In ws, a ref has a card: more about what's named (a file's lines, where a mission stands, a plugin's thing as its plugin says it is), shown by the ref's words while the pointer's on them. A page can't draw one. What a card says is ws's to know, and a frame can't draw past its own edge. So the page says which ref the pointer's on and where its words are, and ws draws the card it draws in its own pages, over the frame:
+
+```json
+{ "type": "ws:hover", "ref": "…", "box": { "x": 212, "y": 96.5, "width": 54, "height": 18 } }
+```
+
+```json
+{ "type": "ws:hover" }
+```
+
+| Field | What it is |
+|---|---|
+| `ref` | ws's word for the ref, as `ws:refs-found` gave it |
+| `box` | Where the ref's words are: their box in the frame's own viewport, in CSS pixels, as an element's `getBoundingClientRect()` gives it |
+
+- **With a ref and its box, the pointer's on that ref. With neither, it's on none.** The keys' focus on a ref is as the pointer on it.
+- **The page says where the words are in itself, and ws adds where the frame is** in its window. So the card sits by the words as it would in a page of ws's own: under them, or over them where there's no room below, kept in the window, and past the frame's edge where it needs the room.
+- **The card's wait is ws's.** It shows a moment after the pointer comes, so a pointer passing over shows nothing, and goes a moment after the pointer leaves, so the pointer can be moved onto it. The page says only that the pointer came, and that it went, as each happens.
+- **The pointer on the card is ws's to see.** To the page it has left the ref, and the page says so; ws keeps the card for as long as the pointer's on it.
+- **The box is where the words were when it was said.** When they move (the page scrolls), the page says none, or says the ref again with where its words are now.
+- **ws takes the card down when the page goes,** and when its address moves: the frame loaded again, another page connected, ws went somewhere else, or ws moved the app (`ws:navigate`).
+- **A ref ws can't read has no card.**
+
+The package says all of it for anything [drawn as a ref](#drawing-one), by `markRefs` or by the app: there's nothing to call. It says none when the page scrolls or is pressed, and says the ref again, where it is now, when the scroll was to bring the keys' focus into view.
 
 ## The frame's edge
 

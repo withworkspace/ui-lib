@@ -11,7 +11,9 @@
 // round it: a canvas has ws fold its sidebar. And ws holds conversations
 // about the page in its own chrome: the page says how they may be had,
 // what the person's holding and what the agent should know, and asks for
-// one to open.
+// one to open. And what ws alone can draw for something in the page, it
+// draws over the frame: the page says where the thing is, and a ref's
+// card sits by its words as it does in ws's own pages.
 
 import { mark } from "./mark.js";
 import { PROTOCOL_VERSIONS, type Connect, type ProtocolVersion, V1, isRefuse } from "./protocol.js";
@@ -430,7 +432,7 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
     });
 
   if (doc) applyTheme(doc, theme);
-  const unwire = doc ? wire(doc, welcome, send, open) : () => {};
+  const wired = doc ? wire(doc, welcome, send, open) : undefined;
 
   port.onmessage = (e: MessageEvent) => {
     const m: unknown = e.data;
@@ -445,6 +447,8 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
         } catch {
           // A frame whose address can't be set (in a test, say) still moves.
         }
+        // What the pointer was on is the page before's.
+        wired?.left();
         for (const fn of [...navigated]) fn(m.path);
         break;
       case "ws:theme":
@@ -591,7 +595,7 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
     },
     open: (to) => open(to),
     close() {
-      unwire();
+      wired?.stop();
       for (const stop of [...marks]) stop();
       marks.clear();
       for (const stop of [...dismissals]) stop();
@@ -618,10 +622,52 @@ function applyTheme(doc: Document, theme: Theme) {
 }
 
 // wire listens in the page for what's ws's: the keys the welcome named,
-// and clicks on links. It returns what undoes it.
-function wire(doc: Document, welcome: V1.Welcome, send: (m: V1.PageMessage) => void, open: (address: string) => void): () => void {
+// clicks on links, and the pointer on a ref. It returns what undoes it
+// (stop), and what says the pointer's on nothing now (left).
+function wire(doc: Document, welcome: V1.Welcome, send: (m: V1.PageMessage) => void, open: (address: string) => void): { stop(): void; left(): void } {
   const { keys } = welcome;
   let leaderAt = 0;
+
+  // The ref the pointer's on, or the keys are: ws is told as it changes,
+  // with where the ref's words are in the page, and shows the ref's card
+  // by them. A ref is whatever's drawn as one, by markRefs or by the app.
+  // How long the card waits is ws's: this says only that the pointer came,
+  // and that it went.
+  let over: Element | undefined;
+  const tell = (el: Element | undefined) => {
+    over = el;
+    const ref = el?.getAttribute("data-ws-ref");
+    if (!el || !ref) return send({ type: "ws:hover" });
+    const { x, y, width, height } = el.getBoundingClientRect();
+    send({ type: "ws:hover", ref, box: { x, y, width, height } });
+  };
+  const hover = (el: Element | undefined) => {
+    if (el !== over) tell(el);
+  };
+  const onOver = (e: Event) => hover(refOn(e.target));
+  // The pointer left the page: for ws, or for the card ws drew over it.
+  const onOut = (e: MouseEvent) => {
+    if (!e.relatedTarget) hover(undefined);
+  };
+  // The keys' focus is as the pointer: a press's isn't, since the press
+  // is about to follow the ref.
+  const onFocus = (e: Event) => {
+    const el = refOn(e.target);
+    if (el && focusShown(el)) hover(el);
+  };
+  const onBlur = (e: Event) => {
+    if (over && refOn(e.target) === over) hover(undefined);
+  };
+  // Pressed, the ref is being followed, or something else is being done.
+  const left = () => hover(undefined);
+  // Scrolled, the words aren't where ws was told. The pointer's on
+  // something else now, which the page hears next. The keys' focus is
+  // still on its ref (a ref focused past the page's edge is scrolled to):
+  // ws is told where its words are now.
+  const onScroll = () => {
+    if (over && doc.activeElement === over) tell(over);
+    else left();
+  };
 
   const onKey = (e: KeyboardEvent) => {
     const typing = isTypedIn(e.target);
@@ -675,10 +721,42 @@ function wire(doc: Document, welcome: V1.Welcome, send: (m: V1.PageMessage) => v
 
   doc.addEventListener("keydown", onKey);
   doc.addEventListener("click", onClick);
-  return () => {
-    doc.removeEventListener("keydown", onKey);
-    doc.removeEventListener("click", onClick);
+  doc.addEventListener("mouseover", onOver);
+  doc.addEventListener("mouseout", onOut);
+  doc.addEventListener("focusin", onFocus);
+  doc.addEventListener("focusout", onBlur);
+  doc.addEventListener("scroll", onScroll, true);
+  doc.addEventListener("pointerdown", left, true);
+  return {
+    stop() {
+      doc.removeEventListener("keydown", onKey);
+      doc.removeEventListener("click", onClick);
+      doc.removeEventListener("mouseover", onOver);
+      doc.removeEventListener("mouseout", onOut);
+      doc.removeEventListener("focusin", onFocus);
+      doc.removeEventListener("focusout", onBlur);
+      doc.removeEventListener("scroll", onScroll, true);
+      doc.removeEventListener("pointerdown", left, true);
+    },
+    left,
   };
+}
+
+// The ref something in the page is in, if it's in one: an element drawn
+// as a ref is, with ws's word for it.
+function refOn(target: EventTarget | null): Element | undefined {
+  const el = (target as Partial<Element> | null)?.closest?.(".ws-ref[data-ws-ref]");
+  return el && el.getAttribute("data-ws-ref") ? el : undefined;
+}
+
+// Whether the focus on an element is one that's shown: the keys', and not
+// a press's. A browser that can't say is taken to show it.
+function focusShown(el: Element): boolean {
+  try {
+    return el.matches(":focus-visible");
+  } catch {
+    return true;
+  }
 }
 
 // address is a link's URL as ws's address. A link resolved against the

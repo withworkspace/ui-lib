@@ -179,6 +179,37 @@ export interface Here {
   name?: string;
 }
 
+/**
+ * Box is where something is on the page: its box in the frame's own
+ * viewport, in CSS pixels, as an element's getBoundingClientRect() gives
+ * it. The page says where a thing is in itself, and ws adds where the
+ * frame is in its window: what ws draws for it (a ref's card) sits by
+ * the thing, as if the frame had no edge.
+ */
+export interface Box {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Hover is the ref the pointer's on now, or the keys are, and where its
+ * words are: ws shows the ref's card by them, as it does for a ref in its
+ * own pages, over the frame and past its edge where the card needs the
+ * room. Neither, when it's on none. The card's wait (a moment before it
+ * shows, a moment after the pointer goes, so it can be moved onto) is
+ * ws's, as is what the card says: the page says only when the pointer
+ * comes and goes. ws forgets it when the page goes.
+ */
+export interface Hover {
+  type: "ws:hover";
+  /** ws's word for the ref, as ws:refs-found gave it. */
+  ref?: string;
+  /** Where its words are. With a ref, always. */
+  box?: Box;
+}
+
 /** The layouts of ws's chrome a page may ask for. */
 export type ChromeMode = "expanded" | "standard";
 
@@ -336,7 +367,7 @@ export interface ConversationState {
 }
 
 /** What a page sends on the port. */
-export type PageMessage = Go | Title | Key | Refs | Here | ChromeLayout | Conversation | ConversationOpen | ConversationClose;
+export type PageMessage = Go | Title | Key | Refs | Hover | Here | ChromeLayout | Conversation | ConversationOpen | ConversationClose;
 /** What ws sends on the port. */
 export type HostMessage = Welcome | Refuse | Navigate | ThemeChanged | Changed | RefsFound | RefsChanged | Outside | ConversationState;
 
@@ -373,6 +404,12 @@ export function isWelcome(m: unknown): m is Welcome {
 
 const isIndex = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 0;
 
+const isSize = (v: unknown): v is number => Number.isFinite(v) && (v as number) >= 0;
+
+export function isBox(m: unknown): m is Box {
+  return isRecord(m) && Number.isFinite(m.x) && Number.isFinite(m.y) && isSize(m.width) && isSize(m.height);
+}
+
 export function isFoundRef(m: unknown): m is FoundRef {
   return (
     isRecord(m) &&
@@ -406,6 +443,9 @@ export function isPageMessage(m: unknown): m is PageMessage {
       return isString(m.key) && [m.meta, m.ctrl, m.shift, m.alt].every((v) => typeof v === "boolean");
     case "ws:refs":
       return isIndex(m.id) && isStrings(m.texts);
+    case "ws:hover":
+      // A ref and where it is, or neither.
+      return m.ref === undefined ? m.box === undefined : isString(m.ref) && m.ref !== "" && isBox(m.box);
     case "ws:here":
       return m.name === undefined || (isString(m.name) && m.name !== "");
     case "ws:chrome-layout":

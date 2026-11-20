@@ -105,11 +105,12 @@ In a test, give it what to fetch with: `endpoints<Api>(ws, { fetch })`. Without 
 
 ### What it does to the page
 
-Three things, and nothing more unless it's asked (`markRefs` changes the element it's given):
+Four things, and nothing more unless it's asked (`markRefs` changes the element it's given):
 
 - **The theme.** ws's shell has the theme's tokens in a `<style>` before the app loads, as `--ws-bg`, `--ws-fg`, `--ws-accent` and [the rest](PROTOCOL.md#the-tokens). When the theme changes in ws, the client sets the new values on `<html>`, so CSS that uses `var(--ws-…)` follows by itself.
 - **Keys.** The keys ws owns (the palette on ⌘K, say) are passed on to ws when they're pressed in the frame. Which keys those are comes from ws in the handshake, not from this package.
 - **Links.** A link clicked in the app is ws's to follow, so the frame never adds to history: a link to `ws.href(…)` (or a relative one) moves the app, by way of ws, and one to `/missions/token-cache` goes to that page of ws's. A click with a key held or another button, a `target`, or a `download` is left to the browser, and a link elsewhere on the web opens in a tab of its own. [`PROTOCOL.md`](PROTOCOL.md#history) has the whole of it.
+- **The pointer on a ref.** While the pointer's on a link drawn as a ref, or the keys' focus is, ws is told which ref and where its words are, and draws the ref's card there ([Refs](#refs)). It listens; it changes nothing in the page.
 
 ### Routing
 
@@ -176,6 +177,8 @@ function Words({ ws, text }: { ws: Client; text: string }) {
   return <>{[...out, text.slice(at)]}</>;
 }
 ```
+
+**A ref's card.** In ws, a ref has a card while the pointer's on it: a file's lines, where a mission stands, a thing as its plugin says it is. A ref in the app has the same card, and there's nothing to call. What a card says is ws's to know, and a frame can't draw past its own edge, so ws draws it: the client tells ws which ref the pointer's on and where its words are in the page, and ws puts the card by them, over the frame, as if the frame had no edge. It's for anything drawn as a ref is: `markRefs`' links, and your own with `class="ws-ref"` and `data-ws-ref`. [`PROTOCOL.md`](PROTOCOL.md#its-card) has what's said.
 
 Askings made together go to ws as one message, so a list whose rows each ask costs one. In a ws from before it found names for a page, nothing is found, and the words stay words. [`PROTOCOL.md`](PROTOCOL.md#refs) has what a ref is given as.
 
@@ -301,6 +304,7 @@ host.refsChanged();                  // ws:refs-changed
 host.outside();                      // ws:outside: a press in ws, outside the frame
 host.conversationState({ open: true, as: "card", working: true });   // ws:conversation-state
 host.conversation;                   // what the page last said in ws:conversation
+host.hover;                          // the ref the page last said the pointer's on, and where: { ref, box }
 
 await host.next("ws:title");         // the next ws:title from the page
 host.sent;                           // everything the page has sent

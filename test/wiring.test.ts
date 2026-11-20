@@ -367,6 +367,134 @@ describe("a press elsewhere", () => {
   });
 });
 
+describe("the pointer on a ref", () => {
+  // Words with a ref drawn in them as the shell's, at a box of its own:
+  // happy-dom lays nothing out.
+  const drawn = '<p id="words">See <a class="ws-ref" href="/x/jira/browse/PROJ-12" data-ws-ref="thing:PROJ-12" data-ws-kind="thing"><b>PROJ</b>-12</a> and <a class="ws-ref" href="/files/demo" data-ws-ref="repo:demo">demo</a>, or <a id="plain" href="/missions">a link that is no ref</a>.</p>';
+  const at = (el: Element, box: { x: number; y: number; width: number; height: number }) => {
+    el.getBoundingClientRect = () => ({ ...box, top: box.y, left: box.x, right: box.x + box.width, bottom: box.y + box.height, toJSON: () => box }) as DOMRect;
+    return el;
+  };
+  async function words() {
+    const p = await page();
+    const app = p.add(drawn);
+    const [thing, repo] = [...app.querySelectorAll(".ws-ref")] as [Element, Element];
+    at(thing, { x: 212, y: 96.5, width: 54, height: 18 });
+    at(repo, { x: 300, y: 96.5, width: 40, height: 18 });
+    const mouse = (type: string, on: Element, to?: Element | null) =>
+      void on.dispatchEvent(new p.window.MouseEvent(type, { bubbles: true, relatedTarget: (to ?? null) as never }) as unknown as Event);
+    const hovers = async () => {
+      await settled(p.ws, p.host);
+      return p.host.sent.filter((m) => m.type === "ws:hover");
+    };
+    return { ...p, app, thing, repo, mouse, hovers };
+  }
+
+  test("ws is told the ref, and where its words are in the page", async () => {
+    const { thing, mouse, hovers, host } = await words();
+
+    mouse("mouseover", thing);
+
+    expect(await hovers()).toEqual([{ type: "ws:hover", ref: "thing:PROJ-12", box: { x: 212, y: 96.5, width: 54, height: 18 } }]);
+    expect(host.hover).toEqual({ ref: "thing:PROJ-12", box: { x: 212, y: 96.5, width: 54, height: 18 } });
+  });
+
+  test("it's told once for a ref, however the pointer moves in it", async () => {
+    const { thing, mouse, hovers } = await words();
+
+    mouse("mouseover", thing);
+    mouse("mouseover", thing.querySelector("b")!);
+    mouse("mouseout", thing.querySelector("b")!, thing);
+
+    expect(await hovers()).toHaveLength(1);
+  });
+
+  test("it's told when the pointer goes onto other words, and onto another ref", async () => {
+    const { app, thing, repo, mouse, hovers, host } = await words();
+
+    mouse("mouseover", thing);
+    mouse("mouseover", app);
+    mouse("mouseover", repo);
+
+    expect((await hovers()).map((m) => m.ref)).toEqual(["thing:PROJ-12", undefined, "repo:demo"]);
+    expect(host.hover?.box).toEqual({ x: 300, y: 96.5, width: 40, height: 18 });
+  });
+
+  test("a link that isn't drawn as a ref is no ref", async () => {
+    const { app, mouse, hovers } = await words();
+
+    mouse("mouseover", app.querySelector("#plain")!);
+
+    expect(await hovers()).toEqual([]);
+  });
+
+  test("the pointer leaving the page, for ws or for the card ws drew, is told", async () => {
+    const { thing, mouse, hovers, host } = await words();
+
+    mouse("mouseover", thing);
+    mouse("mouseout", thing, null);
+
+    expect(await hovers()).toEqual([expect.objectContaining({ ref: "thing:PROJ-12" }), { type: "ws:hover" }]);
+    expect(host.hover).toBeUndefined();
+  });
+
+  test("a scroll, a press, and ws moving the page each end it", async () => {
+    const { window, app, thing, mouse, pressOn, hovers, host, ws } = await words();
+    const ends = async () => (await hovers()).filter((m) => m.ref === undefined).length;
+
+    mouse("mouseover", thing);
+    app.dispatchEvent(new window.Event("scroll") as unknown as Event); // a scroll doesn't bubble: it's heard on its way down
+    expect(await ends()).toBe(1);
+
+    mouse("mouseover", thing);
+    pressOn(thing);
+    expect(await ends()).toBe(2);
+
+    mouse("mouseover", thing);
+    const moved = new Promise<string>((resolve) => ws.onNavigate(resolve));
+    host.navigate("/board");
+    await moved;
+    expect(await ends()).toBe(3);
+    expect(host.hover).toBeUndefined();
+  });
+
+  test("the keys' focus on a ref is as the pointer on it", async () => {
+    const { thing, hovers, host } = await words();
+
+    (thing as HTMLElement).focus();
+    expect((await hovers()).map((m) => m.ref)).toEqual(["thing:PROJ-12"]);
+
+    (thing as HTMLElement).blur();
+    await hovers();
+    expect(host.hover).toBeUndefined();
+  });
+
+  test("a ref the keys are on is still the one after a scroll, where its words are now", async () => {
+    // Focused past the page's edge, a ref is scrolled to: the scroll
+    // comes after the focus.
+    const { window, app, thing, hovers } = await words();
+
+    (thing as HTMLElement).focus();
+    at(thing, { x: 212, y: 40, width: 54, height: 18 });
+    app.dispatchEvent(new window.Event("scroll") as unknown as Event);
+
+    expect(await hovers()).toEqual([
+      { type: "ws:hover", ref: "thing:PROJ-12", box: { x: 212, y: 96.5, width: 54, height: 18 } },
+      { type: "ws:hover", ref: "thing:PROJ-12", box: { x: 212, y: 40, width: 54, height: 18 } },
+    ]);
+  });
+
+  test("closing stops it", async () => {
+    const { thing, mouse, host, ws } = await words();
+
+    ws.close();
+    mouse("mouseover", thing);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    expect(host.sent.filter((m) => m.type === "ws:hover")).toEqual([]);
+  });
+});
+
 describe("close", () => {
   test("stops hearing presses elsewhere", async () => {
     const { add, pressOn, ws } = await page();
