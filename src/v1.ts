@@ -183,8 +183,8 @@ export interface Here {
  * Box is where something is on the page: its box in the frame's own
  * viewport, in CSS pixels, as an element's getBoundingClientRect() gives
  * it. The page says where a thing is in itself, and ws adds where the
- * frame is in its window: what ws draws for it (a ref's card) sits by
- * the thing, as if the frame had no edge.
+ * frame is in its window: what ws draws for it sits by the thing, as if
+ * the frame had no edge.
  */
 export interface Box {
   x: number;
@@ -194,20 +194,58 @@ export interface Box {
 }
 
 /**
- * Hover is the ref the pointer's on now, or the keys are, and where its
- * words are: ws shows the ref's card by them, as it does for a ref in its
- * own pages, over the frame and past its edge where the card needs the
- * room. Neither, when it's on none. The card's wait (a moment before it
- * shows, a moment after the pointer goes, so it can be moved onto) is
- * ws's, as is what the card says: the page says only when the pointer
- * comes and goes. ws forgets it when the page goes.
+ * Uis is the UIs of ws's own that a page can ask for, by name: what each
+ * is given (with), and what comes of it (result). ws defines each one:
+ * what it draws, how it behaves, and what it does. A page says only
+ * which, what it's about, and where on the page it's asked from. A UI is
+ * added here, in ws, and to the client as a method of its own, together.
  */
-export interface Hover {
-  type: "ws:hover";
-  /** ws's word for the ref, as ws:refs-found gave it. */
-  ref?: string;
-  /** Where its words are. With a ref, always. */
+export interface Uis {
+  /**
+   * A ref's card: more about what the ref names, shown by its words
+   * while the pointer's on them, as for a ref in ws's own pages. It's
+   * asked for as the pointer comes to the ref, with the box of its
+   * words, and closed as the pointer goes. The card's wait (a moment
+   * before it shows, a moment after it's closed, so the pointer can be
+   * moved onto it) is ws's.
+   */
+  "ref-card": {
+    with: {
+      /** ws's word for the ref, as ws:refs-found gave it. */
+      ref: string;
+    };
+    result: undefined;
+  };
+}
+
+/** The name of one of ws's UIs. */
+export type UiName = keyof Uis;
+
+/** The names of the UIs this release knows of. */
+export const UI_NAMES: readonly UiName[] = ["ref-card"];
+
+/**
+ * UiOpen asks ws for one of its own UIs, drawn by ws over the frame and
+ * past its edge where it needs the room. box is where on the page it's
+ * asked from (a button's box, a ref's words): ws places what it draws by
+ * it. ws answers only when it closes the UI itself (ws:ui-closed), or
+ * can't show it.
+ */
+export interface UiOpen {
+  type: "ws:ui-open";
+  /** The page's number for the asking, which ws:ui-close and ws:ui-closed have. */
+  id: number;
+  /** Which of ws's UIs: one of Uis' names. */
+  ui: string;
   box?: Box;
+  /** What that UI is given. */
+  with?: Record<string, unknown>;
+}
+
+/** UiClose takes back a UI the page asked for: the pointer went, the page moved on. */
+export interface UiClose {
+  type: "ws:ui-close";
+  id: number;
 }
 
 /** The layouts of ws's chrome a page may ask for. */
@@ -353,6 +391,20 @@ export interface Outside {
 }
 
 /**
+ * UiClosed is ws closing a UI the page asked for: it was dismissed, or it
+ * finished, with what came of it (result, as that UI's has it). With an
+ * error, it was never shown: this ws has no UI of that name, or it
+ * wasn't given what the UI takes; the sentence is for whoever's writing
+ * the page. ws says none of this for a UI the page closed itself.
+ */
+export interface UiClosed {
+  type: "ws:ui-closed";
+  id: number;
+  result?: unknown;
+  error?: string;
+}
+
+/**
  * ConversationState is where the conversation about the page is now,
  * said each time it changes: open or not, the form it's in, and whether
  * its agent is working on an answer. A canvas, say, keeps clear of a
@@ -367,9 +419,9 @@ export interface ConversationState {
 }
 
 /** What a page sends on the port. */
-export type PageMessage = Go | Title | Key | Refs | Hover | Here | ChromeLayout | Conversation | ConversationOpen | ConversationClose;
+export type PageMessage = Go | Title | Key | Refs | UiOpen | UiClose | Here | ChromeLayout | Conversation | ConversationOpen | ConversationClose;
 /** What ws sends on the port. */
-export type HostMessage = Welcome | Refuse | Navigate | ThemeChanged | Changed | RefsFound | RefsChanged | Outside | ConversationState;
+export type HostMessage = Welcome | Refuse | Navigate | ThemeChanged | Changed | RefsFound | RefsChanged | Outside | UiClosed | ConversationState;
 
 // The guards check a message's shape: that it's one of this version's,
 // with each field it must have. A message that fails is dropped, which is
@@ -443,9 +495,10 @@ export function isPageMessage(m: unknown): m is PageMessage {
       return isString(m.key) && [m.meta, m.ctrl, m.shift, m.alt].every((v) => typeof v === "boolean");
     case "ws:refs":
       return isIndex(m.id) && isStrings(m.texts);
-    case "ws:hover":
-      // A ref and where it is, or neither.
-      return m.ref === undefined ? m.box === undefined : isString(m.ref) && m.ref !== "" && isBox(m.box);
+    case "ws:ui-open":
+      return isIndex(m.id) && isString(m.ui) && m.ui !== "" && optional(m.box, isBox) && optional(m.with, isRecord);
+    case "ws:ui-close":
+      return isIndex(m.id);
     case "ws:here":
       return m.name === undefined || (isString(m.name) && m.name !== "");
     case "ws:chrome-layout":
@@ -488,6 +541,8 @@ export function isHostMessage(m: unknown): m is HostMessage {
       return true;
     case "ws:outside":
       return true;
+    case "ws:ui-closed":
+      return isIndex(m.id) && optional(m.error, isString);
     case "ws:conversation-state":
       return typeof m.open === "boolean" && optional(m.as, isConversationForm) && typeof m.working === "boolean";
     default:

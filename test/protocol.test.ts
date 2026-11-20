@@ -27,8 +27,9 @@ const fromPage = [
   { type: "ws:title", title: "PROJ-2 Token cache" } satisfies V1.Title,
   { type: "ws:key", key: "k", meta: true, ctrl: false, shift: false, alt: false } satisfies V1.Key,
   { type: "ws:refs", id: 1, texts: ["See PROJ-12 for more", "demo is a repo"] } satisfies V1.Refs,
-  { type: "ws:hover", ref: "…", box: { x: 212, y: 96.5, width: 54, height: 18 } } satisfies V1.Hover,
-  { type: "ws:hover" } satisfies V1.Hover,
+  { type: "ws:ui-open", id: 1, ui: "ref-card", box: { x: 212, y: 96.5, width: 54, height: 18 }, with: { ref: "…" } } satisfies V1.UiOpen,
+  { type: "ws:ui-open", id: 2, ui: "a-ui-from-a-later-release" } satisfies V1.UiOpen,
+  { type: "ws:ui-close", id: 1 } satisfies V1.UiClose,
   { type: "ws:here", name: "PROJ-12" } satisfies V1.Here,
   { type: "ws:here" } satisfies V1.Here,
   { type: "ws:chrome-layout", mode: "expanded" } satisfies V1.ChromeLayout,
@@ -43,6 +44,9 @@ const fromHost = [
   { type: "ws:refs-found", id: 1, found: [[found], [{ from: 0, to: 4, ref: '{"kind":"repo","repo":"demo"}', kind: "repo", href: "/files/demo", shape: "pill", accent: "#6e509c" }]] } satisfies V1.RefsFound,
   { type: "ws:refs-changed" } satisfies V1.RefsChanged,
   { type: "ws:outside" } satisfies V1.Outside,
+  { type: "ws:ui-closed", id: 1 } satisfies V1.UiClosed,
+  { type: "ws:ui-closed", id: 2, result: { saved: "records:sketches/release-flow.excalidraw" } } satisfies V1.UiClosed,
+  { type: "ws:ui-closed", id: 3, error: "This ws has no UI called a-ui-from-a-later-release. Update ws." } satisfies V1.UiClosed,
 ] satisfies V1.HostMessage[];
 // The other names /protocol has for a page and ws to use.
 const _names: [ProtocolVersion, Token, TokenVar, V1.Scheme, V1.Theme, V1.Keys, V1.Plugin] = [1, "bg", "--ws-bg", "dark", welcome.theme, welcome.keys, welcome.plugin];
@@ -51,7 +55,7 @@ void _names;
 describe("/protocol", () => {
   test("exports protocol 1's versions, tokens, guards and V1, and nothing that runs", () => {
     expect(Object.keys(protocol).sort()).toEqual(["PROTOCOL_VERSIONS", "TOKENS", "V1", "chooseVersion", "isConnect", "isRefuse"]);
-    expect(Object.keys(V1).sort()).toEqual(["CONVERSATION_FORMS", "isBox", "isConversationForm", "isFoundRef", "isHostMessage", "isPageMessage", "isWelcome"]);
+    expect(Object.keys(V1).sort()).toEqual(["CONVERSATION_FORMS", "UI_NAMES", "isBox", "isConversationForm", "isFoundRef", "isHostMessage", "isPageMessage", "isWelcome"]);
     expect(PROTOCOL_VERSIONS).toEqual([1]);
   });
 
@@ -141,12 +145,15 @@ describe("the guards", () => {
     expect(V1.isPageMessage({ type: "ws:refs", texts: ["PROJ-12"] })).toBe(false);
     expect(V1.isPageMessage({ type: "ws:refs", id: 1, texts: "PROJ-12" })).toBe(false);
     expect(V1.isPageMessage({ type: "ws:outside" })).toBe(false); // ws's to say, not a page's
-    expect(V1.isPageMessage({ type: "ws:hover", ref: "…" })).toBe(false); // a ref is said with where it is
-    expect(V1.isPageMessage({ type: "ws:hover", box: { x: 0, y: 0, width: 1, height: 1 } })).toBe(false);
-    expect(V1.isPageMessage({ type: "ws:hover", ref: "", box: { x: 0, y: 0, width: 1, height: 1 } })).toBe(false);
-    expect(V1.isPageMessage({ type: "ws:hover", ref: "…", box: { x: 0, y: 0, width: -1, height: 1 } })).toBe(false);
-    expect(V1.isPageMessage({ type: "ws:hover", ref: "…", box: { x: 0, y: Number.NaN, width: 1, height: 1 } })).toBe(false);
-    expect(V1.isPageMessage({ type: "ws:hover", ref: "…", box: { x: -40, y: 0, width: 0, height: 0 } })).toBe(true); // off the frame's edge, and no size, is still somewhere
+    expect(V1.isPageMessage({ type: "ws:ui-open", ui: "ref-card" })).toBe(false); // an asking has its number
+    expect(V1.isPageMessage({ type: "ws:ui-open", id: 1 })).toBe(false);
+    expect(V1.isPageMessage({ type: "ws:ui-open", id: 1, ui: "" })).toBe(false);
+    expect(V1.isPageMessage({ type: "ws:ui-open", id: 1, ui: "ref-card", with: "…" })).toBe(false);
+    expect(V1.isPageMessage({ type: "ws:ui-open", id: 1, ui: "ref-card", box: { x: 0, y: 0, width: -1, height: 1 } })).toBe(false);
+    expect(V1.isPageMessage({ type: "ws:ui-open", id: 1, ui: "ref-card", box: { x: 0, y: Number.NaN, width: 1, height: 1 } })).toBe(false);
+    expect(V1.isPageMessage({ type: "ws:ui-open", id: 1, ui: "ref-card", box: { x: -40, y: 0, width: 0, height: 0 } })).toBe(true); // off the frame's edge, and no size, is still somewhere
+    expect(V1.isPageMessage({ type: "ws:ui-close" })).toBe(false);
+    expect(V1.isPageMessage({ type: "ws:ui-closed", id: 1 })).toBe(false); // ws's to say, not a page's
     expect(V1.isPageMessage({ type: "ws:here", name: 12 })).toBe(false);
     expect(V1.isPageMessage({ type: "ws:here", name: "" })).toBe(false); // none is no name, not an empty one
     expect(V1.isPageMessage({ type: "ws:chrome-layout" })).toBe(false);
@@ -163,6 +170,8 @@ describe("the guards", () => {
     expect(V1.isHostMessage({ type: "ws:refs-found", id: 1, found: [found] })).toBe(false); // a list for each text
     expect(V1.isHostMessage({ type: "ws:refs-found", id: 1, found: [[{ ...found, kind: undefined }]] })).toBe(false);
     expect(V1.isHostMessage({ type: "ws:refs-found", found: [] })).toBe(false);
+    expect(V1.isHostMessage({ type: "ws:ui-closed" })).toBe(false);
+    expect(V1.isHostMessage({ type: "ws:ui-closed", id: 1, error: 404 })).toBe(false);
   });
 
   test("a message with a field its version doesn't know is still that message", () => {

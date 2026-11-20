@@ -383,105 +383,136 @@ describe("the pointer on a ref", () => {
     at(repo, { x: 300, y: 96.5, width: 40, height: 18 });
     const mouse = (type: string, on: Element, to?: Element | null) =>
       void on.dispatchEvent(new p.window.MouseEvent(type, { bubbles: true, relatedTarget: (to ?? null) as never }) as unknown as Event);
-    const hovers = async () => {
+    // The cards ws has been asked for and that aren't closed, once
+    // everything said so far has reached it.
+    const cards = async () => {
       await settled(p.ws, p.host);
-      return p.host.sent.filter((m) => m.type === "ws:hover");
+      return p.host.uis.map(({ id: _, ...asked }) => asked);
     };
-    return { ...p, app, thing, repo, mouse, hovers };
+    // Every card asked for, and how many have been closed.
+    const asked = () => p.host.sent.flatMap((m) => (m.type === "ws:ui-open" ? [(m.with as { ref?: string } | undefined)?.ref] : []));
+    const closed = () => p.host.sent.filter((m) => m.type === "ws:ui-close").length;
+    return { ...p, app, thing, repo, mouse, cards, asked, closed };
   }
 
-  test("ws is told the ref, and where its words are in the page", async () => {
-    const { thing, mouse, hovers, host } = await words();
+  test("its card is asked of ws, from where its words are in the page", async () => {
+    const { thing, mouse, cards } = await words();
 
     mouse("mouseover", thing);
 
-    expect(await hovers()).toEqual([{ type: "ws:hover", ref: "thing:PROJ-12", box: { x: 212, y: 96.5, width: 54, height: 18 } }]);
-    expect(host.hover).toEqual({ ref: "thing:PROJ-12", box: { x: 212, y: 96.5, width: 54, height: 18 } });
+    expect(await cards()).toEqual([{ ui: "ref-card", box: { x: 212, y: 96.5, width: 54, height: 18 }, with: { ref: "thing:PROJ-12" } }]);
   });
 
-  test("it's told once for a ref, however the pointer moves in it", async () => {
-    const { thing, mouse, hovers } = await words();
+  test("it's asked for once, however the pointer moves in the ref", async () => {
+    const { thing, mouse, cards, asked, closed } = await words();
 
     mouse("mouseover", thing);
     mouse("mouseover", thing.querySelector("b")!);
     mouse("mouseout", thing.querySelector("b")!, thing);
 
-    expect(await hovers()).toHaveLength(1);
+    expect(await cards()).toHaveLength(1);
+    expect(asked()).toEqual(["thing:PROJ-12"]);
+    expect(closed()).toBe(0);
   });
 
-  test("it's told when the pointer goes onto other words, and onto another ref", async () => {
-    const { app, thing, repo, mouse, hovers, host } = await words();
+  test("it's closed when the pointer goes onto other words, and another ref's is asked for", async () => {
+    const { app, thing, repo, mouse, cards, asked, closed } = await words();
 
     mouse("mouseover", thing);
     mouse("mouseover", app);
-    mouse("mouseover", repo);
+    expect(await cards()).toEqual([]);
 
-    expect((await hovers()).map((m) => m.ref)).toEqual(["thing:PROJ-12", undefined, "repo:demo"]);
-    expect(host.hover?.box).toEqual({ x: 300, y: 96.5, width: 40, height: 18 });
+    mouse("mouseover", repo);
+    expect(await cards()).toEqual([{ ui: "ref-card", box: { x: 300, y: 96.5, width: 40, height: 18 }, with: { ref: "repo:demo" } }]);
+    expect(asked()).toEqual(["thing:PROJ-12", "repo:demo"]);
+    expect(closed()).toBe(1);
   });
 
-  test("a link that isn't drawn as a ref is no ref", async () => {
-    const { app, mouse, hovers } = await words();
+  test("straight from one ref to another, the first's is closed and the second's asked for", async () => {
+    const { thing, repo, mouse, cards, closed } = await words();
+
+    mouse("mouseover", thing);
+    mouse("mouseover", repo);
+
+    expect((await cards()).map((c) => c.with.ref)).toEqual(["repo:demo"]);
+    expect(closed()).toBe(1);
+  });
+
+  test("a link that isn't drawn as a ref has no card", async () => {
+    const { app, mouse, cards, asked } = await words();
 
     mouse("mouseover", app.querySelector("#plain")!);
 
-    expect(await hovers()).toEqual([]);
+    expect(await cards()).toEqual([]);
+    expect(asked()).toEqual([]);
   });
 
-  test("the pointer leaving the page, for ws or for the card ws drew, is told", async () => {
-    const { thing, mouse, hovers, host } = await words();
+  test("the pointer leaving the page, for ws or for the card ws drew, closes it", async () => {
+    const { thing, mouse, cards, closed } = await words();
 
     mouse("mouseover", thing);
     mouse("mouseout", thing, null);
 
-    expect(await hovers()).toEqual([expect.objectContaining({ ref: "thing:PROJ-12" }), { type: "ws:hover" }]);
-    expect(host.hover).toBeUndefined();
+    expect(await cards()).toEqual([]);
+    expect(closed()).toBe(1);
   });
 
-  test("a scroll, a press, and ws moving the page each end it", async () => {
-    const { window, app, thing, mouse, pressOn, hovers, host, ws } = await words();
-    const ends = async () => (await hovers()).filter((m) => m.ref === undefined).length;
+  test("a scroll, a press, and ws moving the page each close it", async () => {
+    const { window, app, thing, mouse, pressOn, cards, closed, host, ws } = await words();
 
     mouse("mouseover", thing);
     app.dispatchEvent(new window.Event("scroll") as unknown as Event); // a scroll doesn't bubble: it's heard on its way down
-    expect(await ends()).toBe(1);
+    expect(await cards()).toEqual([]);
 
     mouse("mouseover", thing);
     pressOn(thing);
-    expect(await ends()).toBe(2);
+    expect(await cards()).toEqual([]);
 
     mouse("mouseover", thing);
     const moved = new Promise<string>((resolve) => ws.onNavigate(resolve));
     host.navigate("/board");
     await moved;
-    expect(await ends()).toBe(3);
-    expect(host.hover).toBeUndefined();
+    expect(await cards()).toEqual([]);
+    expect(closed()).toBe(3);
   });
 
   test("the keys' focus on a ref is as the pointer on it", async () => {
-    const { thing, hovers, host } = await words();
+    const { thing, cards } = await words();
 
     (thing as HTMLElement).focus();
-    expect((await hovers()).map((m) => m.ref)).toEqual(["thing:PROJ-12"]);
+    expect((await cards()).map((c) => c.with.ref)).toEqual(["thing:PROJ-12"]);
 
     (thing as HTMLElement).blur();
-    await hovers();
-    expect(host.hover).toBeUndefined();
+    expect(await cards()).toEqual([]);
   });
 
-  test("a ref the keys are on is still the one after a scroll, where its words are now", async () => {
+  test("a ref the keys are on is still the one after a scroll, from where its words are now", async () => {
     // Focused past the page's edge, a ref is scrolled to: the scroll
     // comes after the focus.
-    const { window, app, thing, hovers } = await words();
+    const { window, app, thing, cards, closed } = await words();
 
     (thing as HTMLElement).focus();
     at(thing, { x: 212, y: 40, width: 54, height: 18 });
     app.dispatchEvent(new window.Event("scroll") as unknown as Event);
 
-    expect(await hovers()).toEqual([
-      { type: "ws:hover", ref: "thing:PROJ-12", box: { x: 212, y: 96.5, width: 54, height: 18 } },
-      { type: "ws:hover", ref: "thing:PROJ-12", box: { x: 212, y: 40, width: 54, height: 18 } },
-    ]);
+    expect(await cards()).toEqual([{ ui: "ref-card", box: { x: 212, y: 40, width: 54, height: 18 }, with: { ref: "thing:PROJ-12" } }]);
+    expect(closed()).toBe(1);
+  });
+
+  test("a ws with no card for a ref is asked, and nothing comes of it", async () => {
+    const p = await page({ uis: [] });
+    const thing = at(p.add(drawn).querySelector(".ws-ref")!, { x: 0, y: 0, width: 10, height: 10 });
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => void unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+
+    thing.dispatchEvent(new p.window.MouseEvent("mouseover", { bubbles: true }) as unknown as Event);
+    await settled(p.ws, p.host);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    process.off("unhandledRejection", onUnhandled);
+
+    expect(p.host.uis).toEqual([]);
+    expect(unhandled).toEqual([]);
   });
 
   test("closing stops it", async () => {
@@ -491,7 +522,7 @@ describe("the pointer on a ref", () => {
     mouse("mouseover", thing);
     await new Promise((resolve) => setTimeout(resolve, 5));
 
-    expect(host.sent.filter((m) => m.type === "ws:hover")).toEqual([]);
+    expect(host.sent.filter((m) => m.type === "ws:ui-open")).toEqual([]);
   });
 });
 

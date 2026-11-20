@@ -110,7 +110,7 @@ Four things, and nothing more unless it's asked (`markRefs` changes the element 
 - **The theme.** ws's shell has the theme's tokens in a `<style>` before the app loads, as `--ws-bg`, `--ws-fg`, `--ws-accent` and [the rest](PROTOCOL.md#the-tokens). When the theme changes in ws, the client sets the new values on `<html>`, so CSS that uses `var(--ws-…)` follows by itself.
 - **Keys.** The keys ws owns (the palette on ⌘K, say) are passed on to ws when they're pressed in the frame. Which keys those are comes from ws in the handshake, not from this package.
 - **Links.** A link clicked in the app is ws's to follow, so the frame never adds to history: a link to `ws.href(…)` (or a relative one) moves the app, by way of ws, and one to `/missions/token-cache` goes to that page of ws's. A click with a key held or another button, a `target`, or a `download` is left to the browser, and a link elsewhere on the web opens in a tab of its own. [`PROTOCOL.md`](PROTOCOL.md#history) has the whole of it.
-- **The pointer on a ref.** While the pointer's on a link drawn as a ref, or the keys' focus is, ws is told which ref and where its words are, and draws the ref's card there ([Refs](#refs)). It listens; it changes nothing in the page.
+- **The pointer on a ref.** While the pointer's on a link drawn as a ref, or the keys' focus is, the ref's card is asked of ws, which draws it by the ref's words ([ws's own UI](#wss-own-ui)). It listens; it changes nothing in the page.
 
 ### Routing
 
@@ -178,7 +178,7 @@ function Words({ ws, text }: { ws: Client; text: string }) {
 }
 ```
 
-**A ref's card.** In ws, a ref has a card while the pointer's on it: a file's lines, where a mission stands, a thing as its plugin says it is. A ref in the app has the same card, and there's nothing to call. What a card says is ws's to know, and a frame can't draw past its own edge, so ws draws it: the client tells ws which ref the pointer's on and where its words are in the page, and ws puts the card by them, over the frame, as if the frame had no edge. It's for anything drawn as a ref is: `markRefs`' links, and your own with `class="ws-ref"` and `data-ws-ref`. [`PROTOCOL.md`](PROTOCOL.md#its-card) has what's said.
+**A ref's card.** In ws, a ref has a card while the pointer's on it: a file's lines, where a mission stands, a thing as its plugin says it is. A ref in the app has the same card, and there's nothing to call: it's for anything drawn as a ref is, `markRefs`' links and your own with `class="ws-ref"` and `data-ws-ref`. ws draws it, over the frame ([ws's own UI](#wss-own-ui)).
 
 Askings made together go to ws as one message, so a list whose rows each ask costs one. In a ws from before it found names for a page, nothing is found, and the words stay words. [`PROTOCOL.md`](PROTOCOL.md#refs) has what a ref is given as.
 
@@ -209,6 +209,31 @@ useEffect(() => (open ? ws.dismissOutside([button.current!, menu.current!], () =
 ```
 
 The class makes it cover the frame, in ws's scrim, fading in as ws's own does. Where the dialog sits in it is the app's to style. There's nothing to call, and nothing of this package's in it: ws watches the page for the class, so both halves come and go in the same frame. A press on ws's dimmed side comes as any press in ws does, so `dismissOutside(dialog, close)` closes on either half. ws's keys and back still work while it's dimmed: it isn't a lock. [`PROTOCOL.md`](PROTOCOL.md#the-frames-edge) has the rest.
+
+### ws's own UI
+
+Some of what an app wants shown is ws's to know, or ws's to do, and nothing an app draws can go past the edge of its frame. So ws has UIs of its own that an app asks for, under `ws.ui`. ws defines each: what it draws, how it behaves, what it does. The app says which, what it's about, and what on the page it's asked from, and ws draws it there, over the frame, as if the frame had no edge. It's not a way to describe a UI of the app's for ws to draw: an app draws its own in its frame.
+
+There's one so far, **a ref's card**. A ref drawn as one has it already. For a name that isn't a link, such as words on a canvas, ask as the pointer comes, and close as it goes:
+
+```ts
+const [[found]] = await ws.findRefs([label.text]);
+const close = ws.ui.refCard(label.box, found.ref);   // an element, or its box in the page
+// …the pointer left
+close();
+```
+
+How long the card waits before it shows, and after it's closed, is ws's.
+
+Each UI is a method here, and all of them are made of `ws.ui.open`, which asks for one by its name:
+
+```ts
+const card = ws.ui.open("ref-card", { target: element, with: { ref } });
+card.close();        // take it back
+await card.result;   // what came of it, once ws closed it: undefined when it was dismissed, or closed by the app
+```
+
+`target` is an element, whose box is read as it is now, or a box. `result` rejects with a `UiError` when ws couldn't show it: this ws is from before that UI, or it wasn't given what the UI takes. A ws from before any of them answers nothing, so what's awaited there stays waiting. [`PROTOCOL.md`](PROTOCOL.md#wss-own-ui) has what's said, and the UIs there are.
 
 ### What's open beyond the address
 
@@ -304,7 +329,8 @@ host.refsChanged();                  // ws:refs-changed
 host.outside();                      // ws:outside: a press in ws, outside the frame
 host.conversationState({ open: true, as: "card", working: true });   // ws:conversation-state
 host.conversation;                   // what the page last said in ws:conversation
-host.hover;                          // the ref the page last said the pointer's on, and where: { ref, box }
+host.uis;                            // the UIs of ws's own the page has open: [{ id, ui, box, with }]
+host.closeUi(1, { saved: true });    // ws:ui-closed: ws closed one, with what came of it
 
 await host.next("ws:title");         // the next ws:title from the page
 host.sent;                           // everything the page has sent
@@ -329,6 +355,7 @@ host.close();
 | `versions` | The frame protocol versions the host says it speaks | `[1]` |
 | `silent` | Never answer | `false` |
 | `refs` | What the host finds in a run of text, as ws finds its names. `false` is a ws from before it could be asked. | Nothing |
+| `uis` | The names of the UIs of its own the host has. Asked for another, it says it has none, as a ws from before that UI does. | Every one this release knows |
 | `conversations` | `false` is a ws from before it held conversations about pages | `true` |
 
 `named()` makes a finder from some names, each with where it goes. It finds them wherever they're whole words:
@@ -364,6 +391,8 @@ npm run build        # into dist/
 The tests run on the fake host, and under [happy-dom](https://github.com/capricorn86/happy-dom) where they need a page.
 
 A change to the protocol is made in `PROTOCOL.md`, `src/protocol.ts` and `src/v1.ts` together. Within a version it only adds.
+
+One of ws's own UIs is added as a name in `Uis` and `UI_NAMES` (`src/v1.ts`), with what it's given and what comes of it; a row in `PROTOCOL.md`'s list; and a method on `ws.ui` that asks for it through `open`. ws draws it: its half is in ws web (`web/src/plugins/ui.ts` and `Uis.tsx`), which is typed from `Uis`, so a name ws hasn't drawn doesn't build there.
 
 ## Releasing
 
