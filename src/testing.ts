@@ -1,8 +1,9 @@
 // A fake host: ws, without ws. It answers a page's ws:connect as ws web
 // does, from the same types, and lets a test say what ws would (a move, a
 // theme, a change) and see what the page said. Like ws, it follows a
-// ws:go into the plugin with a ws:navigate, and answers a ws:refs with
-// what it's been told to find. It needs no DOM: it runs on a
+// ws:go into the plugin with a ws:navigate, answers a ws:refs with what
+// it's been told to find, and keeps the UIs of ws's own the page has asked
+// for, for a test to close as ws would. It needs no DOM: it runs on a
 // MessageChannel, which Node has.
 
 import { type Connect, type Refuse, TOKENS, type Token, V1, chooseVersion, isConnect } from "./protocol.js";
@@ -34,6 +35,14 @@ export interface FakeHostOptions {
    * names, and a ws:refs gets no answer.
    */
   refs?: FindRefs | false;
+  /**
+   * The names of the UIs of its own the host has (ws:ui-open), which its
+   * welcome lists. Every one this release knows of, by default. Asked
+   * for one it hasn't, it says so, as a ws from before that UI does.
+   * false is a ws from before it had any: its welcome lists none, and a
+   * ws:ui-open gets no answer.
+   */
+  uis?: readonly string[] | false;
   /**
    * false is a ws from before it held conversations about pages: its
    * welcome doesn't say it does, and the page says nothing of them.
@@ -74,6 +83,18 @@ export function named(names: Record<string, string | (Partial<Omit<V1.FoundRef, 
   };
 }
 
+/** One of ws's UIs as a page asked for it. */
+export interface FakeUi {
+  /** The page's number for the asking. */
+  id: number;
+  /** Which UI. */
+  ui: string;
+  /** Where on the page it was asked from. */
+  box?: V1.Box;
+  /** What it was given. */
+  with: Record<string, unknown>;
+}
+
 /** Some custom properties' values, by name: { "--ws-accent": "#f0f" }. */
 export type SomeVars = { [name: `--${string}`]: string };
 
@@ -99,6 +120,12 @@ export interface FakeHost {
    * (ws:here), or none.
    */
   readonly here: string | undefined;
+  /**
+   * uis is the UIs of ws's own the page has asked for (ws:ui-open) and
+   * that aren't closed, in the order they were asked for: a ref's card,
+   * while the pointer's on the ref.
+   */
+  readonly uis: readonly FakeUi[];
   /** chromeLayout is how the page last said it wants ws's chrome laid out (ws:chrome-layout). */
   readonly chromeLayout: V1.ChromeMode;
   /** conversation is what the page last said of conversations about it (ws:conversation), or nothing. */
@@ -130,6 +157,11 @@ export interface FakeHost {
   refsChanged(refs?: FindRefs): void;
   /** outside sends ws:outside: a press landed in ws, outside the frame. */
   outside(): void;
+  /**
+   * closeUi sends ws:ui-closed: ws closed a UI the page asked for,
+   * dismissed, or done with what came of it (result).
+   */
+  closeUi(id: number, result?: unknown): void;
   /**
    * conversationState sends ws:conversation-state: the conversation about
    * the page opened, closed, moved, or started or stopped working. The
@@ -191,6 +223,8 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
   const keys = options.keys ?? { chords: ["k", "p"], bare: ["?", "g"], leaders: ["g"], within: 900 };
   let path = options.path ?? "/";
   let here: string | undefined;
+  let uis: FakeUi[] = [];
+  const has = options.uis ?? V1.UI_NAMES;
   let chromeLayout: V1.ChromeMode = "standard";
   let conversation: Omit<V1.Conversation, "type"> | undefined;
   const conversations = options.conversations ?? true;
@@ -222,6 +256,13 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
       say({ type: "ws:navigate", path });
     }
     if (m.type === "ws:here") here = m.name;
+    // As ws: one of its UIs is kept until it's closed, and one it hasn't
+    // is said to be none of its own.
+    if (m.type === "ws:ui-open" && has) {
+      if (has.includes(m.ui)) uis = [...uis, { id: m.id, ui: m.ui, ...(m.box ? { box: m.box } : {}), with: m.with ?? {} }];
+      else say({ type: "ws:ui-closed", id: m.id, error: `This ws has no UI called ${m.ui}. Update ws.` });
+    }
+    if (m.type === "ws:ui-close") uis = uis.filter((u) => u.id !== m.id);
     if (m.type === "ws:chrome-layout") chromeLayout = m.mode;
     if (m.type === "ws:conversation") {
       const { type: _, ...said } = m;
@@ -266,6 +307,7 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
         theme,
         keys,
         ...(refs ? { refs: true } : {}),
+        ...(has ? { uis: [...has] } : {}),
         ...(conversations ? { conversations: true } : {}),
       });
     },
@@ -280,6 +322,9 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
     },
     get here() {
       return here;
+    },
+    get uis() {
+      return uis;
     },
     get chromeLayout() {
       return chromeLayout;
@@ -325,6 +370,10 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
     },
     outside() {
       say({ type: "ws:outside" });
+    },
+    closeUi(id, result) {
+      uis = uis.filter((u) => u.id !== id);
+      say(result === undefined ? { type: "ws:ui-closed", id } : { type: "ws:ui-closed", id, result });
     },
     conversationState({ open, as, working = false }) {
       say(as === undefined ? { type: "ws:conversation-state", open, working } : { type: "ws:conversation-state", open, as, working });

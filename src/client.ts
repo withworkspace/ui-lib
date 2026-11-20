@@ -11,7 +11,10 @@
 // round it: a canvas has ws fold its sidebar. And ws holds conversations
 // about the page in its own chrome: the page says how they may be had,
 // what the person's holding and what the agent should know, and asks for
-// one to open.
+// one to open. And ws has UIs of its own that a page can ask for (ui):
+// ws defines each, and draws it over the frame, by where on the page it
+// was asked from. A ref's card is the first, asked for as the pointer
+// comes to a ref.
 
 import { mark } from "./mark.js";
 import { PROTOCOL_VERSIONS, type Connect, type ProtocolVersion, V1, isRefuse } from "./protocol.js";
@@ -49,6 +52,22 @@ export class NoHostError extends Error {
   }
 }
 
+/**
+ * UiError is ws not showing a UI a page asked for: this ws has no UI of
+ * that name (it's from before the UI was), or it wasn't given what the
+ * UI takes. Its message says which.
+ */
+export class UiError extends Error {
+  /** The UI that was asked for. */
+  readonly ui: string;
+
+  constructor(message: string, ui: string) {
+    super(message);
+    this.name = "UiError";
+    this.ui = ui;
+  }
+}
+
 /** HostWindow is as much of window.parent as the handshake uses. */
 export interface HostWindow {
   postMessage(message: unknown, targetOrigin: string, transfer: Transferable[]): void;
@@ -71,6 +90,10 @@ export interface ConnectOptions {
 }
 
 export type Theme = V1.Theme;
+/** One of the plugin's own things, as a UI of ws's about it is given it. */
+export type ThingAsked = V1.ThingAsked;
+/** What putting a thing in a repo, or saving it there, did. */
+export type ThingSaved = V1.ThingSaved;
 /** One of ws's names in a run of text, as ws found it. */
 export type FoundRef = V1.FoundRef;
 
@@ -139,6 +162,69 @@ export interface Conversations {
   close(): void;
   /** onChange runs fn when it opens, closes, moves, or starts or stops working. */
   onChange(fn: (status: ConversationStatus) => void): () => void;
+}
+
+/** Where something is on the page: its box, as getBoundingClientRect() gives it. */
+export type Box = V1.Box;
+
+/**
+ * One of ws's UIs, once it's been asked for. It's a promise of what came
+ * of it, so it's awaited: it resolves once the UI's closed, with what
+ * the UI's result is, or with undefined when it was dismissed or the
+ * page closed it. It rejects with a UiError when ws couldn't show it.
+ */
+export type UiOpened<Result> = Promise<Result | undefined> & {
+  /** close takes it back: ws takes it down, and it resolves with undefined. */
+  close(): void;
+};
+
+/**
+ * Ui is ws's own UI, asked for by the page and drawn by ws over the
+ * frame: what's ws's to know or to do (a ref's card), and what a frame
+ * can't draw past its own edge. ws defines each one. The page says which,
+ * what it's about, and where on the page it's asked from, and ws places
+ * it there as if the frame had no edge.
+ */
+export interface Ui {
+  /**
+   * has is whether this ws has the UI of that name: one from before the
+   * UI was hasn't. For a page that offers something only where ws can
+   * do it (a button that saves).
+   */
+  has(name: string): boolean;
+  /**
+   * open asks for one of ws's UIs by its name, with what it's given, from
+   * somewhere on the page: an element, whose box is read now, or a box.
+   * What it returns is awaited for what came of it, and can be closed.
+   * Asked of a ws that hasn't that UI, it rejects at once. Each UI has a
+   * method of its own here that says what it's for: this is what they're
+   * made of.
+   */
+  open<N extends V1.UiName>(name: N, options: { target?: Element | Box; with: V1.Uis[N]["with"] }): UiOpened<V1.Uis[N]["result"]>;
+  /**
+   * refCard shows a ref's card by something on the page: more about what
+   * the ref names, as ws shows it for a ref in its own pages. ref is ws's
+   * word for it, as findRefs gave it. Call it as the pointer comes, and
+   * what it returns as the pointer goes: the card's wait is ws's. A ref
+   * drawn as one (markRefs, or a.ws-ref with data-ws-ref) has its card
+   * already: this is for what isn't a link, such as words on a canvas.
+   */
+  refCard(target: Element | Box, ref: string): () => void;
+  /**
+   * promoteThing asks ws to put one of the plugin's own things in a repo,
+   * from a button on the page: ws shows where it's to live, by the
+   * button, and does it when the person says. Awaited, it's where the
+   * thing is now, or nothing where they thought better of it. The plugin
+   * is told too, by ws, as it gives the thing.
+   */
+  promoteThing(target: Element | Box, thing: ThingAsked): UiOpened<ThingSaved>;
+  /**
+   * saveThing asks ws to save one of the plugin's own things to the repo
+   * it lives in, as the person has it now, from the button they pressed:
+   * ws saves it, and says by the button how it went. Awaited, it's the
+   * thing as it is there now, or nothing where it wasn't saved.
+   */
+  saveThing(target: Element | Box, thing: ThingAsked): UiOpened<ThingSaved>;
 }
 
 /** Client is the app's handle on ws, once they've shaken hands. */
@@ -254,6 +340,12 @@ export interface Client {
    * when the page goes.
    */
   setChromeLayout(mode: V1.ChromeMode): void;
+
+  /**
+   * ui is ws's own UI, drawn by ws over the frame where the page asks
+   * for it: a ref's card by its words.
+   */
+  readonly ui: Ui;
 
   /**
    * conversation is the page's say in ws's conversations about it, held
@@ -429,8 +521,50 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
       asking.push({ texts: [...texts], found: resolve });
     });
 
+  // The UIs of ws's own that have been asked for and aren't closed yet,
+  // by the asking's id.
+  const uis = new Map<number, { ui: string; done: (result: unknown) => void; failed: (err: UiError) => void }>();
+  let uiAskings = 0;
+  // The UIs this ws said it has. One from before it had any said none.
+  const hasUi = new Set(welcome.uis ?? []);
+  const openUi = <N extends V1.UiName>(name: N, options: { target?: Element | Box; with: V1.Uis[N]["with"] }): UiOpened<V1.Uis[N]["result"]> => {
+    type Result = V1.Uis[N]["result"] | undefined;
+    // Nobody's there to show it.
+    if (closed) return Object.assign(Promise.resolve<Result>(undefined), { close() {} });
+    // A ws that hasn't this UI wouldn't answer, or would only say so: it
+    // fails now, so what's awaiting it isn't left waiting.
+    if (!hasUi.has(name)) return Object.assign(Promise.reject<Result>(new UiError(`This ws has no UI called ${name}. Update ws.`, name)), { close() {} });
+    const id = ++uiAskings;
+    const result = new Promise<Result>((resolve, reject) => uis.set(id, { ui: name, done: (r) => resolve(r as Result), failed: reject }));
+    const box = boxOf(options.target);
+    send({ type: "ws:ui-open", id, ui: name, ...(box ? { box } : {}), with: { ...options.with } });
+    return Object.assign(result, {
+      close() {
+        const asked = uis.get(id);
+        if (!asked) return;
+        uis.delete(id);
+        send({ type: "ws:ui-close", id });
+        asked.done(undefined);
+      },
+    });
+  };
+  const refCard = (target: Element | Box, ref: string) => {
+    if (!ref) throw new TypeError('ui.refCard(target, ""): a ref is ws\'s word for it, as findRefs gave it.');
+    const card = openUi("ref-card", { target, with: { ref } });
+    // A ws that has no card for it shows none: there's nothing to do about it here.
+    card.catch(() => {});
+    return () => card.close();
+  };
+
+  const aboutThing = (how: string, thing: ThingAsked) => {
+    if (!thing?.kind || !thing.ref) throw new TypeError(`ui.${how}(target, thing): a thing is its kind and the plugin's name for it, { kind: "sketch", ref: "sketch-12" }.`);
+    return { kind: thing.kind, ref: thing.ref, ...(thing.title ? { title: thing.title } : {}) };
+  };
+  const promoteThing = (target: Element | Box, thing: ThingAsked) => openUi("thing-promote", { target, with: aboutThing("promoteThing", thing) });
+  const saveThing = (target: Element | Box, thing: ThingAsked) => openUi("thing-save", { target, with: aboutThing("saveThing", thing) });
+
   if (doc) applyTheme(doc, theme);
-  const unwire = doc ? wire(doc, welcome, send, open) : () => {};
+  const wired = doc ? wire(doc, welcome, send, open, refCard) : undefined;
 
   port.onmessage = (e: MessageEvent) => {
     const m: unknown = e.data;
@@ -445,6 +579,8 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
         } catch {
           // A frame whose address can't be set (in a test, say) still moves.
         }
+        // What the pointer was on is the page before's.
+        wired?.left();
         for (const fn of [...navigated]) fn(m.path);
         break;
       case "ws:theme":
@@ -467,6 +603,13 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
       case "ws:outside":
         for (const fn of [...outside]) fn();
         break;
+      case "ws:ui-closed": {
+        const asked = uis.get(m.id);
+        uis.delete(m.id);
+        if (m.error !== undefined) asked?.failed(new UiError(m.error, asked.ui));
+        else asked?.done(m.result);
+        break;
+      }
       case "ws:conversation-state":
         status = m.as === undefined ? { open: m.open, working: m.working } : { open: m.open, as: m.as, working: m.working };
         for (const fn of [...conversed]) fn(status);
@@ -541,6 +684,7 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
         tellHere();
       };
     },
+    ui: { has: (name) => hasUi.has(name), open: openUi, refCard, promoteThing, saveThing },
     setChromeLayout(mode) {
       if (mode !== "expanded" && mode !== "standard") throw new TypeError(`setChromeLayout("${String(mode)}"): the layout is "expanded" or "standard".`);
       if (mode === layout || closed) return;
@@ -591,7 +735,7 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
     },
     open: (to) => open(to),
     close() {
-      unwire();
+      wired?.stop();
       for (const stop of [...marks]) stop();
       marks.clear();
       for (const stop of [...dismissals]) stop();
@@ -602,6 +746,9 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
       for (const b of asking.splice(0)) b.found(b.texts.map(() => []));
       for (const found of [...asked.values()]) found([]);
       asked.clear();
+      // ws takes down what was asked for when the page goes: it isn't told.
+      for (const ui of [...uis.values()]) ui.done(undefined);
+      uis.clear();
       port.onmessage = null;
       port.close();
     },
@@ -618,10 +765,59 @@ function applyTheme(doc: Document, theme: Theme) {
 }
 
 // wire listens in the page for what's ws's: the keys the welcome named,
-// and clicks on links. It returns what undoes it.
-function wire(doc: Document, welcome: V1.Welcome, send: (m: V1.PageMessage) => void, open: (address: string) => void): () => void {
+// clicks on links, and the pointer on a ref. It returns what undoes it
+// (stop), and what says the pointer's on nothing now (left).
+function wire(
+  doc: Document,
+  welcome: V1.Welcome,
+  send: (m: V1.PageMessage) => void,
+  open: (address: string) => void,
+  refCard: (target: Element, ref: string) => () => void,
+): { stop(): void; left(): void } {
   const { keys } = welcome;
   let leaderAt = 0;
+
+  // The ref the pointer's on, or the keys are: its card is asked of ws as
+  // the pointer comes, from where the ref's words are, and closed as it
+  // goes. A ref is whatever's drawn as one, by markRefs or by the app.
+  // How long the card waits is ws's: this says only that the pointer came,
+  // and that it went.
+  let over: Element | undefined;
+  let closeCard = () => {};
+  const tell = (el: Element | undefined) => {
+    closeCard();
+    closeCard = () => {};
+    over = el;
+    const ref = el?.getAttribute("data-ws-ref");
+    if (el && ref) closeCard = refCard(el, ref);
+  };
+  const hover = (el: Element | undefined) => {
+    if (el !== over) tell(el);
+  };
+  const onOver = (e: Event) => hover(refOn(e.target));
+  // The pointer left the page: for ws, or for the card ws drew over it.
+  const onOut = (e: MouseEvent) => {
+    if (!e.relatedTarget) hover(undefined);
+  };
+  // The keys' focus is as the pointer: a press's isn't, since the press
+  // is about to follow the ref.
+  const onFocus = (e: Event) => {
+    const el = refOn(e.target);
+    if (el && focusShown(el)) hover(el);
+  };
+  const onBlur = (e: Event) => {
+    if (over && refOn(e.target) === over) hover(undefined);
+  };
+  // Pressed, the ref is being followed, or something else is being done.
+  const left = () => hover(undefined);
+  // Scrolled, the words aren't where ws was told. The pointer's on
+  // something else now, which the page hears next. The keys' focus is
+  // still on its ref (a ref focused past the page's edge is scrolled to):
+  // its card is asked for again, from where its words are now.
+  const onScroll = () => {
+    if (over && doc.activeElement === over) tell(over);
+    else left();
+  };
 
   const onKey = (e: KeyboardEvent) => {
     const typing = isTypedIn(e.target);
@@ -675,10 +871,50 @@ function wire(doc: Document, welcome: V1.Welcome, send: (m: V1.PageMessage) => v
 
   doc.addEventListener("keydown", onKey);
   doc.addEventListener("click", onClick);
-  return () => {
-    doc.removeEventListener("keydown", onKey);
-    doc.removeEventListener("click", onClick);
+  doc.addEventListener("mouseover", onOver);
+  doc.addEventListener("mouseout", onOut);
+  doc.addEventListener("focusin", onFocus);
+  doc.addEventListener("focusout", onBlur);
+  doc.addEventListener("scroll", onScroll, true);
+  doc.addEventListener("pointerdown", left, true);
+  return {
+    stop() {
+      doc.removeEventListener("keydown", onKey);
+      doc.removeEventListener("click", onClick);
+      doc.removeEventListener("mouseover", onOver);
+      doc.removeEventListener("mouseout", onOut);
+      doc.removeEventListener("focusin", onFocus);
+      doc.removeEventListener("focusout", onBlur);
+      doc.removeEventListener("scroll", onScroll, true);
+      doc.removeEventListener("pointerdown", left, true);
+    },
+    left,
   };
+}
+
+// The ref something in the page is in, if it's in one: an element drawn
+// as a ref is, with ws's word for it.
+function refOn(target: EventTarget | null): Element | undefined {
+  const el = (target as Partial<Element> | null)?.closest?.(".ws-ref[data-ws-ref]");
+  return el && el.getAttribute("data-ws-ref") ? el : undefined;
+}
+
+// Where on the page a UI is asked from: an element's box as it is now, or
+// the box given.
+function boxOf(target: Element | Box | undefined): Box | undefined {
+  if (!target) return undefined;
+  const { x, y, width, height } = "getBoundingClientRect" in target ? target.getBoundingClientRect() : target;
+  return { x, y, width, height };
+}
+
+// Whether the focus on an element is one that's shown: the keys', and not
+// a press's. A browser that can't say is taken to show it.
+function focusShown(el: Element): boolean {
+  try {
+    return el.matches(":focus-visible");
+  } catch {
+    return true;
+  }
 }
 
 // address is a link's URL as ws's address. A link resolved against the

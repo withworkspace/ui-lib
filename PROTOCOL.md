@@ -48,6 +48,7 @@ What a page can rely on:
 - **There's no `<base>`.** The app reaches the plugin's HTTP by the path the welcome gives (`plugin.api`), not by relative URLs.
 - **The page is ws's origin,** and its content security policy allows scripts, styles, fonts and connections from that origin only, and no inline script. Inline style is allowed. Images may also be `data:` or `https:`.
 - **A ref is styled,** in a ws that finds them: a link drawn as [a ref is](#refs) looks as a ref does in ws, with no styles of the app's.
+- **A ref has its card,** in a ws that draws them: while the pointer's on a link drawn as a ref, ws shows the ref's card by it, over the frame ([A ref's card](#a-refs-card)).
 - **A backdrop is styled, and ws dims beside it,** in a ws that does: an element of the class `ws-backdrop` covers the frame in ws's own scrim, and for as long as the page has one ws dims what's beside the frame ([A backdrop](#a-backdrop)).
 
 What it can't:
@@ -71,6 +72,7 @@ Version 1 has gained since it began:
 
 - [Refs](#refs) (`ws:refs`, `ws:refs-found`, `ws:refs-changed`, and the welcome's `refs`), in this package's 0.3.0 and the ws built on it.
 - [The frame's edge](#the-frames-edge) (`ws:outside`, the shell's `.ws-backdrop`, and the token `scrim`), in the release after 0.3.0 and the ws built on it. The welcome doesn't say whether ws has them: in a ws from before, a page hears no `ws:outside`, and a backdrop dims the frame alone.
+- [ws's own UI](#wss-own-ui) (`ws:ui-open`, `ws:ui-close`, `ws:ui-closed`, and the welcome's `uis`), with [a ref's card](#a-refs-card) and [a thing in a repo](#a-thing-in-a-repo), in the release after 0.8.0 and the ws built on it. A ws from before lists none and answers nothing, and a ref in a page there has no card.
 - [Conversations](#conversations) (`ws:conversation`, `ws:conversation-open`, `ws:conversation-close`, `ws:conversation-state`, and the welcome's `conversations`), in the release after 0.6.0 and the ws built on it.
 
 Version 1 broke that rule once, in the ws release after 0.4.0 and this package's 0.2.0, while only withworkspace's own plugins were built on it: ws took over the history, `ws:go` replaced `ws:path`, `ws:open` and `data-ws` links, and the welcome's `plugin` gained `at`. A page built on 0.1.0 still connects to a later ws, but its moves within the app aren't followed. Rebuilt on 0.2.0, it is.
@@ -110,6 +112,7 @@ ws answers on the port, with a welcome or a refusal.
   "theme": { "scheme": "dark", "vars": { "--ws-bg": "#16161a", "--ws-accent": "#a08ad0" } },
   "keys": { "chords": ["k", "p"], "bare": ["?", "g"], "leaders": ["g"], "within": 900 },
   "refs": true,
+  "uis": ["ref-card"],
   "conversations": true
 }
 ```
@@ -127,6 +130,7 @@ ws answers on the port, with a welcome or a refusal.
 | `theme.vars` | Each token's value now, by its `--ws-*` name: every token of this version ([below](#the-tokens)), and any more ws has |
 | `keys` | The keys ws owns, which the page passes on ([below](#keys)) |
 | `refs` | Optional. `true` when ws finds its names in text: it answers `ws:refs` ([below](#refs)). A ws from before it did leaves it out, and a page there doesn't ask. |
+| `uis` | Optional. The UIs of its own this ws has, by name: the ones it answers a `ws:ui-open` for ([ws's own UI](#wss-own-ui)). A ws from before it had any leaves it out, and a page there asks for none. |
 | `conversations` | Optional. `true` when ws holds conversations about the page ([below](#conversations)). A ws from before it did leaves it out, and a page there says nothing of them. |
 
 What ws doesn't send: what a `ws:go` does (that's ws's to decide when it gets one), its routes, its API, or who's signed in.
@@ -165,6 +169,9 @@ After the welcome. Each is `{ "type": "ws:…", … }` on the port.
 | `ws:refs` | page | `id`, `texts` | Which of ws's names are in these runs of text? `id` is the page's number for the asking. ([Refs](#refs)) |
 | `ws:refs-found` | ws | `id`, `found` | The answer to the `ws:refs` of that `id`: for each of its texts, in their order, the refs in it |
 | `ws:refs-changed` | ws | | What there is to name changed: what a `ws:refs` found may be different now. ws says it only to a page that has asked. |
+| `ws:ui-open` | page | `id`, `ui`, `box`, `with` | Show one of ws's own UIs, by its name, from somewhere on the page. ws draws it over the frame. ([ws's own UI](#wss-own-ui)) |
+| `ws:ui-close` | page | `id` | Take back the UI of that `id` |
+| `ws:ui-closed` | ws | `id`, `result`, `error` | ws closed the UI of that `id`: dismissed, or done with what came of it; or it couldn't be shown |
 | `ws:outside` | ws | | A press landed in ws, outside the frame. ([A press outside](#a-press-outside)) |
 | `ws:here` | page | `name` | What the page shows now that its address doesn't say: one of ws's names, or none. ([What's open](#whats-open)) |
 | `ws:chrome-layout` | page | `mode` | How the page wants ws's chrome laid out: `expanded` (ws folds its sidebar to a rail) or `standard`. ([The chrome's layout](#the-chromes-layout)) |
@@ -257,6 +264,10 @@ A ref is a link, so it's followed as any link in the page is ([History](#history
 
 The link's words are the name as it was written.
 
+### Its card
+
+A ref in ws has a card: more about what's named, shown by its words while the pointer's on them. A ref in a page has the same one, which ws draws: it's the first of [ws's own UIs](#a-refs-card).
+
 ## The frame's edge
 
 A frame is a window of its own, and two things stop at its edge that shouldn't seem to: a press, and a backdrop.
@@ -297,6 +308,103 @@ That's all of it: there's no message, and nothing for the page to call.
 - **ws's half is there for as long as the element is.** Both fade in, and both are cut when they go: an app that fades its backdrop out keeps the element, and ws's half, until it's done.
 - **It isn't a lock.** ws's keys still work, and back and forward still move.
 - **ws ends it itself** when the page is gone: the frame loaded again, another page connected, or ws went somewhere else.
+
+## ws's own UI
+
+Some of what a page wants shown is ws's to know, or ws's to do: what a ref names, where a thing is saved. And nothing a page draws can go past the edge of its frame. So ws has UIs of its own that a page asks for. ws defines each one: what it draws, how it behaves, and what it does. A page says which, what it's about, and where on the page it's asked from, and ws draws it there, over the frame, as if the frame had no edge.
+
+It isn't a way for a page to describe a UI of its own for ws to draw. What a page can ask for is what ws has.
+
+### Asking for one
+
+```json
+{ "type": "ws:ui-open", "id": 7, "ui": "ref-card", "box": { "x": 212, "y": 96.5, "width": 54, "height": 18 }, "with": { "ref": "…" } }
+```
+
+| Field | What it is |
+|---|---|
+| `id` | The page's number for the asking, which `ws:ui-close` and `ws:ui-closed` have. A page uses each once. |
+| `ui` | Which of ws's UIs, by name ([below](#the-uis)) |
+| `box` | Optional. Where on the page it's asked from (a button, a ref's words): the thing's box in the frame's own viewport, in CSS pixels, as an element's `getBoundingClientRect()` gives it. |
+| `with` | Optional. What that UI is given, as it says it takes |
+
+- **The page says where the thing is in itself, and ws adds where the frame is** in its window. What ws draws sits by the box as it would by something in a page of ws's own, kept in the window, and past the frame's edge where it needs the room. How it sits by it is the UI's own.
+- **The box is where the thing was when it was said.** ws isn't told when it moves: a page whose thing has moved closes the UI, or asks again.
+- **The page takes one back** with `ws:ui-close`:
+
+  ```json
+  { "type": "ws:ui-close", "id": 7 }
+  ```
+
+  ws takes it down, and says nothing back. An `id` that isn't open is dropped.
+- **ws says when it closes one itself:**
+
+  ```json
+  { "type": "ws:ui-closed", "id": 7, "result": { "…": "…" } }
+  ```
+
+  It was dismissed (no `result`), or it finished, with what came of it, as that UI says its result is. ws says it once, and not for a UI the page closed.
+- **A UI that can't be shown is closed with an `error`:** this ws has none of that name (it's from before the UI was), or it wasn't given what the UI takes.
+
+  ```json
+  { "type": "ws:ui-closed", "id": 7, "error": "This ws has no UI called thing-remote-save. Update ws." }
+  ```
+
+  The sentence is for whoever's writing the page.
+- **The welcome says which UIs this ws has** (`uis`), so a page needn't ask to find out: it offers what's there, and asks for nothing else. A ws from before any of this lists none, and answers no `ws:ui-open` at all. The package's client asks only for what's listed: for anything else, what the page is waiting on fails at once, with the same sentence, and isn't left waiting.
+- **ws takes down everything a page asked for when the page goes:** the frame loaded again, another page connected, or ws went somewhere else. It says nothing of them.
+
+### The UIs
+
+Each has a name, what it's given, and what comes of it. They're `Uis` in `@withworkspace/ui-lib/protocol`, and `UI_NAMES` lists them. One added later is still version 1, because it only adds: it's in the release of the package that adds it, with a method of its own in the client, and in the ws built on that release.
+
+| `ui` | `with` | `result` | What it is |
+|---|---|---|---|
+| `ref-card` | `ref` | None | [A ref's card](#a-refs-card), by the ref's words |
+| `thing-promote` | `kind`, `ref`, `title` | Where the thing is now, or none | [Putting a thing in a repo](#a-thing-in-a-repo), by the button that asked |
+| `thing-save` | `kind`, `ref`, `title` | The thing as it is there now, or none | [Saving a thing to its repo](#a-thing-in-a-repo), by the button pressed |
+
+### A ref's card
+
+In ws, a ref has a card: more about what's named (a file's lines, where a mission stands, a plugin's thing as its plugin says it is), shown by the ref's words while the pointer's on them. What a card says is ws's to know, so ws draws it for a ref in a page too.
+
+| | |
+|---|---|
+| `with.ref` | ws's word for the ref, as `ws:refs-found` gave it |
+| `box` | Where the ref's words are. It's needed: a card with nowhere to be is an `error`. |
+
+- **It's asked for as the pointer comes to the ref, and closed as the pointer goes.** The keys' focus on a ref is as the pointer on it.
+- **The card's wait is ws's.** It shows a moment after it's asked for, so a pointer passing over shows nothing, and goes a moment after it's closed, so the pointer can be moved onto it. The page says only that the pointer came, and that it went, as each happens.
+- **The pointer on the card is ws's to see.** To the page it has left the ref, and the page closes the card; ws keeps it up for as long as the pointer's on it.
+- **Asked for again from the same place while it's going, it stays:** the pointer came back.
+- **One card is up at a time.**
+- **ws takes it down when it moves the app** (`ws:navigate`), as well as when the page goes.
+- **A ref ws can't read has no card.**
+
+### A thing in a repo
+
+A plugin's kind of thing can live in a repo, for everyone with the repo: a folder there, which ws names, commits and lands (the plugin protocol's Remotes). Putting one there, and saving it, are the person's to ask for, and ws's to do: where it goes, the commit and the landing are ws's. So the page has the button, and ws has the rest. ws asks the plugin itself for the thing as its folder is to hold it, and tells the plugin where it is: the page needn't pass anything on.
+
+| | |
+|---|---|
+| `with.kind` | The kind the thing is one of, as the plugin registered it: `sketch` |
+| `with.ref` | The plugin's name for it: `sketch-12` |
+| `with.title` | Optional. What it's called, for ws to say |
+| `box` | Where the button is: what ws shows is by it |
+
+- **`thing-promote` is a dialog.** It says where the thing is to live (the folder ws would name for it, in the workspace's records repo), lets the person say somewhere else, and does it when they say. Dismissed, nothing's done.
+- **`thing-save` saves at once:** the person asked by pressing the button. ws says by the button how it's going, then what came of it, and goes. It stays only when it couldn't save, with why.
+- **The result is what was done:**
+
+  ```json
+  { "thing": { "name": "records/sketches/release-flow/", "repo": "records", "path": "sketches/release-flow/", "title": "Release flow", "version": "3f9c2a1b…" },
+    "changed": true, "said": "Saved: landed on main (ce64e15)" }
+  ```
+
+  `thing` is the thing as it is in its repo now. `changed` is false when it was there as it is already. `merged` is true when it had changed there since the plugin last had it, and the plugin brought the two together. `capsule` is the capsule it was left in, where its repo takes pull requests: it isn't on the default branch yet.
+- **No result is nothing done:** the person thought better of it, or it couldn't be saved and they closed what said so.
+
+The package asks for it for anything [drawn as a ref](#drawing-one), by `markRefs` or by the app: there's nothing to call. It closes the card when the page scrolls or is pressed, and asks again, from where the words are now, when the scroll was to bring the keys' focus into view.
 
 ## What's open
 

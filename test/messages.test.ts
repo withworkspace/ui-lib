@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { type Theme, connect } from "../src/index.js";
+import { type Theme, UiError, connect } from "../src/index.js";
 import { fakeHost, named } from "../src/testing.js";
 import { closing, settled } from "./page.js";
 
@@ -253,6 +253,190 @@ describe("refs", () => {
       [9, 15, "/1"],
       [20, 24, "/p"],
     ]);
+  });
+});
+
+describe("ws's own UI, asked for by the page", () => {
+  const box = { x: 212, y: 96.5, width: 54, height: 18 };
+
+  test("ui.open asks for it by name, with what it's given and where on the page it's asked from", async () => {
+    const { host, ws } = await connected();
+
+    ws.ui.open("ref-card", { target: box, with: { ref: "thing:PROJ-12" } });
+
+    expect(await host.next("ws:ui-open")).toEqual({ type: "ws:ui-open", id: 1, ui: "ref-card", box, with: { ref: "thing:PROJ-12" } });
+    expect(host.uis).toEqual([{ id: 1, ui: "ref-card", box, with: { ref: "thing:PROJ-12" } }]);
+  });
+
+  test("asked from an element, it's from the element's box as it is now", async () => {
+    const { host, ws } = await connected();
+    const button = { getBoundingClientRect: () => ({ ...box, top: box.y, left: box.x, right: 266, bottom: 114.5 }) } as unknown as Element;
+
+    ws.ui.open("ref-card", { target: button, with: { ref: "thing:PROJ-12" } });
+
+    expect((await host.next("ws:ui-open")).box).toEqual(box);
+  });
+
+  test("asked from nowhere, it has no box", async () => {
+    const { host, ws } = await connected();
+
+    ws.ui.open("ref-card", { with: { ref: "thing:PROJ-12" } });
+
+    expect(await host.next("ws:ui-open")).toEqual({ type: "ws:ui-open", id: 1, ui: "ref-card", with: { ref: "thing:PROJ-12" } });
+  });
+
+  test("awaited, it's what ws closed it with, and undefined when ws only dismissed it", async () => {
+    const { host, ws } = await connected();
+    // What comes of a UI is its own to say: a card's is nothing, so these
+    // are read as whatever they are.
+    const saved: Promise<unknown> = ws.ui.open("ref-card", { with: { ref: "a" } });
+    const dismissed = ws.ui.open("ref-card", { with: { ref: "b" } });
+    await settled(ws, host);
+
+    host.closeUi(1, { saved: "records:sketches/release-flow.excalidraw" });
+    host.closeUi(2);
+
+    expect(await saved).toEqual({ saved: "records:sketches/release-flow.excalidraw" });
+    expect(await dismissed).toBeUndefined();
+    expect(host.uis).toEqual([]);
+  });
+
+  test("it waits for as long as ws has it open", async () => {
+    const { host, ws } = await connected();
+    let came: unknown = "nothing yet";
+    const asking = ws.ui.open("ref-card", { with: { ref: "a" } }).then((result) => (came = result ?? "dismissed"));
+    await settled(ws, host);
+    expect(came).toBe("nothing yet");
+
+    host.closeUi(1);
+
+    expect(await asking).toBe("dismissed");
+  });
+
+  test("close takes it back: ws is told, and its result is undefined", async () => {
+    const { host, ws } = await connected();
+    const card = ws.ui.open("ref-card", { target: box, with: { ref: "thing:PROJ-12" } });
+
+    card.close();
+    card.close(); // twice is once
+
+    expect(await card).toBeUndefined();
+    await settled(ws, host);
+    expect(host.sent.filter((m) => m.type === "ws:ui-close")).toEqual([{ type: "ws:ui-close", id: 1 }]);
+    expect(host.uis).toEqual([]);
+  });
+
+  test("a ws that closes one the page already closed is saying nothing new", async () => {
+    const { host, ws } = await connected();
+    const card = ws.ui.open("ref-card", { with: { ref: "a" } });
+    card.close();
+    await settled(ws, host);
+
+    host.closeUi(1, "late");
+
+    expect(await card).toBeUndefined();
+  });
+
+  test("has says whether this ws has a UI, as its welcome listed them", async () => {
+    const { ws } = await connected();
+    expect(ws.ui.has("ref-card")).toBe(true);
+    expect(ws.ui.has("thing-remote-save")).toBe(false);
+
+    const before = await connected({ uis: false });
+    expect(before.ws.ui.has("ref-card")).toBe(false);
+  });
+
+  test("a UI this ws hasn't rejects at once with a UiError that says so, and ws isn't asked", async () => {
+    const { host, ws } = await connected({ uis: [] });
+
+    const card = ws.ui.open("ref-card", { with: { ref: "a" } });
+
+    await expect(card).rejects.toBeInstanceOf(UiError);
+    await expect(card).rejects.toMatchObject({ ui: "ref-card", message: "This ws has no UI called ref-card. Update ws." });
+    card.close(); // nothing to take back
+    await settled(ws, host);
+    expect(host.sent.filter((m) => m.type === "ws:ui-open" || m.type === "ws:ui-close")).toEqual([]);
+  });
+
+  test("in a ws from before it had any, what's awaited fails at once and isn't left waiting", async () => {
+    const { host, ws } = await connected({ uis: false });
+
+    await expect(ws.ui.open("ref-card", { with: { ref: "a" } })).rejects.toThrow("This ws has no UI called ref-card. Update ws.");
+    await settled(ws, host);
+    expect(host.sent.filter((m) => m.type === "ws:ui-open")).toEqual([]);
+  });
+
+  test("one ws couldn't show, for what it was given, rejects with what ws said", async () => {
+    const { host, ws } = await connected();
+    const card = ws.ui.open("ref-card", { with: { ref: "a" } });
+    await settled(ws, host);
+
+    host.send({ type: "ws:ui-closed", id: 1, error: "ref-card is asked for with a ref, and the box of its words." });
+
+    await expect(card).rejects.toMatchObject({ name: "UiError", ui: "ref-card", message: "ref-card is asked for with a ref, and the box of its words." });
+  });
+
+  test("each asking has a number of its own", async () => {
+    const { host, ws } = await connected();
+
+    ws.ui.open("ref-card", { with: { ref: "a" } });
+    ws.ui.open("ref-card", { with: { ref: "b" } });
+    await settled(ws, host);
+
+    expect(host.uis.map((u) => [u.id, u.with.ref])).toEqual([
+      [1, "a"],
+      [2, "b"],
+    ]);
+  });
+
+  test("ui.refCard asks for a ref's card, and what it returns closes it", async () => {
+    const { host, ws } = await connected();
+
+    const close = ws.ui.refCard(box, "thing:PROJ-12");
+    await settled(ws, host);
+    expect(host.uis).toEqual([{ id: 1, ui: "ref-card", box, with: { ref: "thing:PROJ-12" } }]);
+
+    close();
+    await settled(ws, host);
+    expect(host.uis).toEqual([]);
+    expect(() => ws.ui.refCard(box, "")).toThrow(TypeError);
+  });
+
+  test("ui.promoteThing and ui.saveThing ask ws to put a thing in a repo, and to save it there, by the button", async () => {
+    const { host, ws } = await connected();
+    const thing = { kind: "sketch", ref: "sketch-12", title: "Release flow" };
+    const there = { thing: { name: "records/sketches/release-flow/", repo: "records", path: "sketches/release-flow/", title: "Release flow", version: "3f9c2a" }, changed: true };
+
+    const promoting = ws.ui.promoteThing(box, thing);
+    expect(await host.next("ws:ui-open")).toEqual({ type: "ws:ui-open", id: 1, ui: "thing-promote", box, with: thing });
+    host.closeUi(1, there);
+    expect(await promoting).toEqual(there);
+
+    // Saved from the button pressed: what's said of it is all that's sent.
+    const saving = ws.ui.saveThing(box, { kind: "sketch", ref: "sketch-12" });
+    expect(await host.next("ws:ui-open")).toEqual({ type: "ws:ui-open", id: 2, ui: "thing-save", box, with: { kind: "sketch", ref: "sketch-12" } });
+    host.closeUi(2);
+    // Dismissed, or not saved: nothing came of it.
+    expect(await saving).toBeUndefined();
+
+    // A thing is its kind and the plugin's name for it.
+    expect(() => ws.ui.saveThing(box, { kind: "sketch", ref: "" })).toThrow(TypeError);
+    // A ws from before it could: what's awaited fails at once.
+    const old = await connected({ uis: ["ref-card"] });
+    expect(old.ws.ui.has("thing-save")).toBe(false);
+    await expect(old.ws.ui.saveThing(box, thing)).rejects.toThrow("This ws has no UI called thing-save. Update ws.");
+  });
+
+  test("closing the client settles what's still open as undefined, and asks for nothing more", async () => {
+    const { host, ws } = await connected();
+    const card = ws.ui.open("ref-card", { with: { ref: "a" } });
+    await settled(ws, host);
+
+    ws.close();
+
+    expect(await card).toBeUndefined();
+    expect(await ws.ui.open("ref-card", { with: { ref: "b" } })).toBeUndefined();
+    expect(host.sent.filter((m) => m.type === "ws:ui-open")).toHaveLength(1);
   });
 });
 

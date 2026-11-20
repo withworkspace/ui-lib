@@ -79,6 +79,13 @@ export interface Welcome {
    */
   refs?: boolean;
   /**
+   * The UIs of its own this ws has, by name: the ones a ws:ui-open is
+   * answered for. A ws from before it had any doesn't say, and a page
+   * there asks for none: what it would have awaited fails at once, and
+   * doesn't wait for an answer that isn't coming.
+   */
+  uis?: string[];
+  /**
    * ws holds conversations about the page: it answers ws:conversation,
    * ws:conversation-open and ws:conversation-close. A ws from before it
    * did doesn't say so, and a page there shows no ask of its own.
@@ -177,6 +184,131 @@ export interface Refs {
 export interface Here {
   type: "ws:here";
   name?: string;
+}
+
+/**
+ * Box is where something is on the page: its box in the frame's own
+ * viewport, in CSS pixels, as an element's getBoundingClientRect() gives
+ * it. The page says where a thing is in itself, and ws adds where the
+ * frame is in its window: what ws draws for it sits by the thing, as if
+ * the frame had no edge.
+ */
+export interface Box {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Uis is the UIs of ws's own that a page can ask for, by name: what each
+ * is given (with), and what comes of it (result). ws defines each one:
+ * what it draws, how it behaves, and what it does. A page says only
+ * which, what it's about, and where on the page it's asked from. A UI is
+ * added here, in ws, and to the client as a method of its own, together.
+ */
+export interface Uis {
+  /**
+   * A ref's card: more about what the ref names, shown by its words
+   * while the pointer's on them, as for a ref in ws's own pages. It's
+   * asked for as the pointer comes to the ref, with the box of its
+   * words, and closed as the pointer goes. The card's wait (a moment
+   * before it shows, a moment after it's closed, so the pointer can be
+   * moved onto it) is ws's.
+   */
+  "ref-card": {
+    with: {
+      /** ws's word for the ref, as ws:refs-found gave it. */
+      ref: string;
+    };
+    result: undefined;
+  };
+  /**
+   * Putting one of the plugin's own things in a repo, for everyone with
+   * the repo: a dialog by the button that asked for it, which says where
+   * it's to live, lets the person say somewhere else, and does it when
+   * they say. ws asks the plugin for the thing, names its folder, commits
+   * and lands it. What comes of it is where the thing is now; nothing,
+   * where the person thought better of it.
+   */
+  "thing-promote": {
+    with: ThingAsked;
+    result: ThingSaved | undefined;
+  };
+  /**
+   * Saving one of the plugin's own things that's in a repo, as the person
+   * has it now: asked for by the button they pressed to save. ws saves at
+   * once, says by the button how it's going and what came of it, and
+   * stays there only when it couldn't. What comes of it is the thing as
+   * it is in its repo now; nothing, where it wasn't saved.
+   */
+  "thing-save": {
+    with: ThingAsked;
+    result: ThingSaved | undefined;
+  };
+}
+
+/** ThingAsked is one of the plugin's own things, as a UI about it is given it. */
+export interface ThingAsked {
+  /** The kind it's one of, as the plugin registered it: sketch. */
+  kind: string;
+  /** The plugin's name for it: sketch-12. */
+  ref: string;
+  /** What it's called, for the UI to say. */
+  title?: string;
+}
+
+/** ThingSaved is what putting a thing in a repo, or saving it there, did. */
+export interface ThingSaved {
+  /** The thing as it is in its repo now. */
+  thing: {
+    /** Its name in ws: its folder, as ws names one (records/sketches/release-flow/). */
+    name: string;
+    /** The repo it's in, and its folder there. */
+    repo: string;
+    path: string;
+    title: string;
+    /** Its main file's version: another when it changes. */
+    version: string;
+  };
+  /** Whether it changed anything there: not when it was as it is already. */
+  changed: boolean;
+  /** Whether it had changed there since, and the two were brought together. */
+  merged?: boolean;
+  /** The capsule it was left in, where its repo takes pull requests: it isn't on the default branch yet. */
+  capsule?: string;
+  /** What was done, in a sentence. */
+  said?: string;
+}
+
+/** The name of one of ws's UIs. */
+export type UiName = keyof Uis;
+
+/** The names of the UIs this release knows of. */
+export const UI_NAMES: readonly UiName[] = ["ref-card", "thing-promote", "thing-save"];
+
+/**
+ * UiOpen asks ws for one of its own UIs, drawn by ws over the frame and
+ * past its edge where it needs the room. box is where on the page it's
+ * asked from (a button's box, a ref's words): ws places what it draws by
+ * it. ws answers only when it closes the UI itself (ws:ui-closed), or
+ * can't show it.
+ */
+export interface UiOpen {
+  type: "ws:ui-open";
+  /** The page's number for the asking, which ws:ui-close and ws:ui-closed have. */
+  id: number;
+  /** Which of ws's UIs: one of Uis' names. */
+  ui: string;
+  box?: Box;
+  /** What that UI is given. */
+  with?: Record<string, unknown>;
+}
+
+/** UiClose takes back a UI the page asked for: the pointer went, the page moved on. */
+export interface UiClose {
+  type: "ws:ui-close";
+  id: number;
 }
 
 /** The layouts of ws's chrome a page may ask for. */
@@ -322,6 +454,20 @@ export interface Outside {
 }
 
 /**
+ * UiClosed is ws closing a UI the page asked for: it was dismissed, or it
+ * finished, with what came of it (result, as that UI's has it). With an
+ * error, it was never shown: this ws has no UI of that name, or it
+ * wasn't given what the UI takes; the sentence is for whoever's writing
+ * the page. ws says none of this for a UI the page closed itself.
+ */
+export interface UiClosed {
+  type: "ws:ui-closed";
+  id: number;
+  result?: unknown;
+  error?: string;
+}
+
+/**
  * ConversationState is where the conversation about the page is now,
  * said each time it changes: open or not, the form it's in, and whether
  * its agent is working on an answer. A canvas, say, keeps clear of a
@@ -336,9 +482,9 @@ export interface ConversationState {
 }
 
 /** What a page sends on the port. */
-export type PageMessage = Go | Title | Key | Refs | Here | ChromeLayout | Conversation | ConversationOpen | ConversationClose;
+export type PageMessage = Go | Title | Key | Refs | UiOpen | UiClose | Here | ChromeLayout | Conversation | ConversationOpen | ConversationClose;
 /** What ws sends on the port. */
-export type HostMessage = Welcome | Refuse | Navigate | ThemeChanged | Changed | RefsFound | RefsChanged | Outside | ConversationState;
+export type HostMessage = Welcome | Refuse | Navigate | ThemeChanged | Changed | RefsFound | RefsChanged | Outside | UiClosed | ConversationState;
 
 // The guards check a message's shape: that it's one of this version's,
 // with each field it must have. A message that fails is dropped, which is
@@ -367,11 +513,18 @@ export function isWelcome(m: unknown): m is Welcome {
     isTheme(m.theme) &&
     isKeys(m.keys) &&
     (m.refs === undefined || typeof m.refs === "boolean") &&
+    (m.uis === undefined || isStrings(m.uis)) &&
     (m.conversations === undefined || typeof m.conversations === "boolean")
   );
 }
 
 const isIndex = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 0;
+
+const isSize = (v: unknown): v is number => Number.isFinite(v) && (v as number) >= 0;
+
+export function isBox(m: unknown): m is Box {
+  return isRecord(m) && Number.isFinite(m.x) && Number.isFinite(m.y) && isSize(m.width) && isSize(m.height);
+}
 
 export function isFoundRef(m: unknown): m is FoundRef {
   return (
@@ -406,6 +559,10 @@ export function isPageMessage(m: unknown): m is PageMessage {
       return isString(m.key) && [m.meta, m.ctrl, m.shift, m.alt].every((v) => typeof v === "boolean");
     case "ws:refs":
       return isIndex(m.id) && isStrings(m.texts);
+    case "ws:ui-open":
+      return isIndex(m.id) && isString(m.ui) && m.ui !== "" && optional(m.box, isBox) && optional(m.with, isRecord);
+    case "ws:ui-close":
+      return isIndex(m.id);
     case "ws:here":
       return m.name === undefined || (isString(m.name) && m.name !== "");
     case "ws:chrome-layout":
@@ -448,6 +605,8 @@ export function isHostMessage(m: unknown): m is HostMessage {
       return true;
     case "ws:outside":
       return true;
+    case "ws:ui-closed":
+      return isIndex(m.id) && optional(m.error, isString);
     case "ws:conversation-state":
       return typeof m.open === "boolean" && optional(m.as, isConversationForm) && typeof m.working === "boolean";
     default:
