@@ -65,6 +65,44 @@ What it's given back:
 
 Each `on…` returns a function that stops it.
 
+### Asking the plugin
+
+`ws.api(path)` is a URL to fetch, and what comes back is whatever the plugin sends. A plugin written with the [Go framework](https://github.com/withworkspace/plugin) can say what each of its endpoints takes and answers (`plugin.Get`, `plugin.Post`…), and `go tool apigen` writes that for the app as `Api`, in `ui/src/api.gen.ts`. `endpoints` asks through it:
+
+```ts
+import { EndpointError, endpoints } from "@withworkspace/ui-lib";
+import type { Api } from "./api.gen";
+
+const plugin = endpoints<Api>(ws);
+
+const issue = await plugin.get("/api/issues/{key}", { params: { key: "PROJ-1" } });
+await plugin.post("/api/issues/{key}/comment", { params: { key: issue.key }, body: { text: "On it" } });
+const open = await plugin.get("/api/issues", { query: { open: true } });
+```
+
+A path is written as the plugin declared it, and what comes back is the type the plugin answers with. A path that isn't one of the plugin's, a value of the path left out, a body of the wrong shape, a name its query hasn't: none of them compile. So when the plugin's Go changes, `go tool apigen` then `tsc` says what in the app has to follow.
+
+| | |
+|---|---|
+| `plugin.get`, `post`, `put`, `patch`, `delete` | Ask an endpoint of that method. Each resolves with what it answers: nothing, for one that answers nothing. |
+| `params` | The values of the path, each put in it as an address takes it: `{ key: "PROJ-1" }` for `/api/issues/{key}`. It's asked for only where the path has some. |
+| `body` | What's sent, as JSON. It's asked for only where the endpoint takes one. |
+| `query` | What goes after the `?`, by the names and types the plugin declared for it (`plugin.Query`). A value that's `undefined` or `null` isn't sent, and a list is sent once for each. It's taken only where the endpoint has one, and it can be left out where every name in it can be. |
+| `signal` | An `AbortSignal` that stops the asking |
+
+An endpoint that couldn't answer rejects with an `EndpointError`: its `message` is what the plugin said, and `status` how it said it (404 for what isn't there, 400 for a body it couldn't read, 500 unless the plugin says otherwise).
+
+```ts
+try {
+  await plugin.get("/api/issues/{key}", { params: { key } });
+} catch (err) {
+  if (err instanceof EndpointError && err.status === 404) return none();
+  throw err;
+}
+```
+
+In a test, give it what to fetch with: `endpoints<Api>(ws, { fetch })`. Without one it uses the page's `fetch` as it is when it asks, so a test that stubs the global works too.
+
 ### What it does to the page
 
 Three things, and nothing more unless it's asked (`markRefs` changes the element it's given):
