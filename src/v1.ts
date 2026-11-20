@@ -78,6 +78,12 @@ export interface Welcome {
    * did doesn't say so, and a page there asks nothing and finds nothing.
    */
   refs?: boolean;
+  /**
+   * ws holds conversations about the page: it answers ws:conversation,
+   * ws:conversation-open and ws:conversation-close. A ws from before it
+   * did doesn't say so, and a page there shows no ask of its own.
+   */
+  conversations?: boolean;
 }
 
 /**
@@ -190,6 +196,81 @@ export interface ChromeLayout {
   mode: ChromeMode;
 }
 
+/**
+ * The forms a conversation about the page can take, in ws's chrome round
+ * the frame. card: a card over the foot of the page, where the ask bar
+ * is. docked: a pane beside the frame, which the page gives up room to.
+ * popover: a panel floating over the page's corner, and a launcher when
+ * it's closed.
+ */
+export type ConversationForm = "card" | "docked" | "popover";
+
+export const CONVERSATION_FORMS: readonly ConversationForm[] = ["card", "docked", "popover"];
+
+/**
+ * Holding is what the person has in hand on the page: a selection. ws
+ * shows it as a chip on the ask bar, and gives it to the agent with the
+ * next thing asked.
+ */
+export interface Holding {
+  /** What it is, in a few words, for the chip: "2 selected". */
+  label: string;
+  /** ws's names in it (RAM-12, sketch-3), drawn as refs on the chip. */
+  names?: string[];
+  /** It as words, for the agent: what's selected, and what it says. */
+  text?: string;
+}
+
+/**
+ * Conversation is all the page says of conversations about it, each time
+ * any of it changes: ws takes it in place of what it was told before.
+ * What a conversation is about is what the page is of (its address, or
+ * ws:here). ws forgets it when the page goes.
+ */
+export interface Conversation {
+  type: "ws:conversation";
+  /** Show ws's ask bar at the foot of the page: a passive way in. */
+  ask: boolean;
+  /**
+   * The forms the conversation may take here. The person moves it among
+   * them and ws remembers their choice; ws fits it to the window (too
+   * narrow to dock, it floats). Empty: ws offers none on this page.
+   */
+  allow: ConversationForm[];
+  /** What the bar says before anything's typed: "Ask about this sketch". */
+  placeholder?: string;
+  holding?: Holding;
+  /**
+   * Standing context: the page's state as words (what's on a canvas, the
+   * filter a board is under), for the agent, not the person. ws gives it
+   * with a message only when it's changed since the agent was last given
+   * it, and folds it under the message, so the person can see what the
+   * agent was told.
+   */
+  context?: string;
+  /** Things to ask, offered as the conversation starts. */
+  suggestions?: string[];
+}
+
+/**
+ * ConversationOpen opens the conversation about the page. With a message,
+ * it's said as the person's, and with context, that's given to the agent
+ * with it (and folded under it, as standing context is). as asks for a
+ * form; without it, the person's own choice is used, as ws remembers it
+ * for the plugin.
+ */
+export interface ConversationOpen {
+  type: "ws:conversation-open";
+  message?: string;
+  context?: string;
+  as?: ConversationForm;
+}
+
+/** ConversationClose closes it: it folds back to the bar, or away. */
+export interface ConversationClose {
+  type: "ws:conversation-close";
+}
+
 // From ws.
 
 /**
@@ -240,10 +321,24 @@ export interface Outside {
   type: "ws:outside";
 }
 
+/**
+ * ConversationState is where the conversation about the page is now,
+ * said each time it changes: open or not, the form it's in, and whether
+ * its agent is working on an answer. A canvas, say, keeps clear of a
+ * docked pane, or shows that changes are coming.
+ */
+export interface ConversationState {
+  type: "ws:conversation-state";
+  open: boolean;
+  /** The form it's shown in, while it's open. */
+  as?: ConversationForm;
+  working: boolean;
+}
+
 /** What a page sends on the port. */
-export type PageMessage = Go | Title | Key | Refs | Here | ChromeLayout;
+export type PageMessage = Go | Title | Key | Refs | Here | ChromeLayout | Conversation | ConversationOpen | ConversationClose;
 /** What ws sends on the port. */
-export type HostMessage = Welcome | Refuse | Navigate | ThemeChanged | Changed | RefsFound | RefsChanged | Outside;
+export type HostMessage = Welcome | Refuse | Navigate | ThemeChanged | Changed | RefsFound | RefsChanged | Outside | ConversationState;
 
 // The guards check a message's shape: that it's one of this version's,
 // with each field it must have. A message that fails is dropped, which is
@@ -271,7 +366,8 @@ export function isWelcome(m: unknown): m is Welcome {
     isString(m.path) &&
     isTheme(m.theme) &&
     isKeys(m.keys) &&
-    (m.refs === undefined || typeof m.refs === "boolean")
+    (m.refs === undefined || typeof m.refs === "boolean") &&
+    (m.conversations === undefined || typeof m.conversations === "boolean")
   );
 }
 
@@ -291,6 +387,14 @@ export function isFoundRef(m: unknown): m is FoundRef {
   );
 }
 
+export const isConversationForm = (v: unknown): v is ConversationForm => CONVERSATION_FORMS.includes(v as ConversationForm);
+
+const optional = <T>(v: unknown, is: (v: unknown) => v is T) => v === undefined || is(v);
+
+function isHolding(m: unknown): m is Holding {
+  return isRecord(m) && isString(m.label) && optional(m.names, isStrings) && optional(m.text, isString);
+}
+
 export function isPageMessage(m: unknown): m is PageMessage {
   if (!isRecord(m)) return false;
   switch (m.type) {
@@ -306,6 +410,20 @@ export function isPageMessage(m: unknown): m is PageMessage {
       return m.name === undefined || (isString(m.name) && m.name !== "");
     case "ws:chrome-layout":
       return m.mode === "expanded" || m.mode === "standard";
+    case "ws:conversation":
+      return (
+        typeof m.ask === "boolean" &&
+        Array.isArray(m.allow) &&
+        m.allow.every(isConversationForm) &&
+        optional(m.placeholder, isString) &&
+        optional(m.holding, isHolding) &&
+        optional(m.context, isString) &&
+        optional(m.suggestions, isStrings)
+      );
+    case "ws:conversation-open":
+      return optional(m.message, isString) && optional(m.context, isString) && optional(m.as, isConversationForm);
+    case "ws:conversation-close":
+      return true;
     default:
       return false;
   }
@@ -330,6 +448,8 @@ export function isHostMessage(m: unknown): m is HostMessage {
       return true;
     case "ws:outside":
       return true;
+    case "ws:conversation-state":
+      return typeof m.open === "boolean" && optional(m.as, isConversationForm) && typeof m.working === "boolean";
     default:
       return false;
   }

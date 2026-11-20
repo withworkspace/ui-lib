@@ -194,6 +194,37 @@ useEffect(() => {
 
 `"expanded"` folds the sidebar to a rail, which opens over the page on hover, as on ws's own pages. `"standard"` is ws's chrome as anywhere else, where a page starts. The latest said is the one, and ws goes back to standard when the page goes.
 
+### Conversations about the page
+
+ws holds conversations about the page in its own chrome: an ask bar at the page's foot, the card it opens, a pane docked beside the frame, a popover over its corner. The page says how they may be had, what the person's holding, and what the agent should know:
+
+```tsx
+useEffect(() => {
+  ws.conversation.set({
+    ask: true,                                 // ws's ask bar at the foot
+    allow: ["card", "docked", "popover"],      // the forms it may take
+    placeholder: "Ask about this sketch",
+    holding: selection.length ? { label: `${selection.length} selected`, text: describe(selection) } : undefined,
+    context: describe(scene),                  // for the agent, not the person
+  });
+}, [ws, selection, scene]);
+```
+
+Each `set()` says some of it: a field given takes the place of what it was, and one given as `undefined` goes. ws is told only when something changed, and forgets it all when the page goes.
+
+`context` is standing context: say it as it is, as often as it changes. ws gives it to the agent with a message only when it's changed since that conversation's agent last had it, and folds it under the message for the person to look at.
+
+The person moves the conversation between the forms, and ws remembers their choice for the plugin. The page can open it too, with a message said as the person's:
+
+```ts
+ws.conversation.open({ message: "Tidy the layout", context: "Selected: `plan`" });
+ws.conversation.open({ as: "docked" });   // just open it, docked
+ws.conversation.close();
+ws.conversation.onChange(({ open, as, working }) => …);
+```
+
+In a ws from before it held conversations, `ws.conversation.available` is `false` and the rest does nothing.
+
 ### When it can't connect
 
 `connect()` rejects with one of two errors, and an app shows either in the page:
@@ -230,6 +261,8 @@ host.theme({ scheme: "light" });     // ws:theme, with every token
 host.changed();                      // ws:changed
 host.refsChanged();                  // ws:refs-changed
 host.outside();                      // ws:outside: a press in ws, outside the frame
+host.conversationState({ open: true, as: "card", working: true });   // ws:conversation-state
+host.conversation;                   // what the page last said in ws:conversation
 
 await host.next("ws:title");         // the next ws:title from the page
 host.sent;                           // everything the page has sent
@@ -254,6 +287,7 @@ host.close();
 | `versions` | The frame protocol versions the host says it speaks | `[1]` |
 | `silent` | Never answer | `false` |
 | `refs` | What the host finds in a run of text, as ws finds its names. `false` is a ws from before it could be asked. | Nothing |
+| `conversations` | `false` is a ws from before it held conversations about pages | `true` |
 
 `named()` makes a finder from some names, each with where it goes. It finds them wherever they're whole words:
 

@@ -8,7 +8,10 @@
 // and what closes on a press elsewhere closes on it too. What the page
 // shows beyond its address (a thing in a panel) the app says, for ws's
 // Find to start from. And a page says how it wants ws's chrome laid out
-// round it: a canvas has ws fold its sidebar.
+// round it: a canvas has ws fold its sidebar. And ws holds conversations
+// about the page in its own chrome: the page says how they may be had,
+// what the person's holding and what the agent should know, and asks for
+// one to open.
 
 import { mark } from "./mark.js";
 import { PROTOCOL_VERSIONS, type Connect, type ProtocolVersion, V1, isRefuse } from "./protocol.js";
@@ -70,6 +73,73 @@ export interface ConnectOptions {
 export type Theme = V1.Theme;
 /** One of ws's names in a run of text, as ws found it. */
 export type FoundRef = V1.FoundRef;
+
+/** A form a conversation about the page can take: "card", "docked", "popover". */
+export type ConversationForm = V1.ConversationForm;
+/** What the person has in hand on the page: a selection. */
+export type Holding = V1.Holding;
+
+/**
+ * ConversationSettings is what a page says of conversations about it.
+ * Each set() says some of it: a field given takes the place of what it
+ * was, and one given as undefined takes it away.
+ */
+export interface ConversationSettings {
+  /** Show ws's ask bar at the foot of the page. */
+  ask?: boolean;
+  /** The forms it may take here. All three, until the page says. */
+  allow?: readonly ConversationForm[];
+  /** What the bar says before anything's typed. */
+  placeholder?: string;
+  /** What the person has in hand: shown as a chip, given to the agent with what's asked next. */
+  holding?: Holding;
+  /**
+   * The page's state as words, for the agent and not the person. ws gives
+   * it with a message only when it's changed since the agent was last
+   * given it: say it as it is, as often as it changes.
+   */
+  context?: string;
+  /** Things to ask, offered as the conversation starts. */
+  suggestions?: readonly string[];
+}
+
+/** Where the conversation about the page is now. */
+export interface ConversationStatus {
+  open: boolean;
+  /** The form it's shown in, while it's open. */
+  as?: ConversationForm;
+  /** Its agent is working on an answer. */
+  working: boolean;
+}
+
+/** Conversations is the page's say in ws's conversations about it. */
+export interface Conversations {
+  /**
+   * ws holds conversations about pages. In a ws from before it did,
+   * everything here does nothing, and a page shows no way to ask.
+   */
+  readonly available: boolean;
+  /** Where it is now. */
+  readonly status: ConversationStatus;
+  /**
+   * set says how conversations about the page may be had: whether ws's
+   * ask bar is shown, the forms it may take, what's held, the context.
+   * Say it again as any of it changes: ws is told only what changed it,
+   * and forgets it all when the page goes.
+   */
+  set(settings: ConversationSettings): void;
+  /**
+   * open opens the conversation: in the form asked for (as), or else the
+   * one the person last chose for the plugin. A message is said as the
+   * person's, and its context given to the agent with it, folded under
+   * it where the person can look.
+   */
+  open(options?: { message?: string; context?: string; as?: ConversationForm }): void;
+  /** close closes it. */
+  close(): void;
+  /** onChange runs fn when it opens, closes, moves, or starts or stops working. */
+  onChange(fn: (status: ConversationStatus) => void): () => void;
+}
 
 /** Client is the app's handle on ws, once they've shaken hands. */
 export interface Client {
@@ -186,6 +256,13 @@ export interface Client {
   setChromeLayout(mode: V1.ChromeMode): void;
 
   /**
+   * conversation is the page's say in ws's conversations about it, held
+   * in ws's chrome round the frame: the ask bar at its foot, the card it
+   * opens, a pane docked beside it, a popover over its corner.
+   */
+  readonly conversation: Conversations;
+
+  /**
    * go asks ws to go to this path in the plugin: /browse/PROJ-2. ws adds
    * it to its history (or, with replace, puts it in place of where it is)
    * and onNavigate follows. The app moves when it's told, not before.
@@ -279,6 +356,7 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
   const themed = new Set<(theme: Theme) => void>();
   const refsChanged = new Set<() => void>();
   const outside = new Set<() => void>();
+  const conversed = new Set<(status: ConversationStatus) => void>();
   const marks = new Set<() => void>();
   const dismissals = new Set<() => void>();
   // What's been asked of ws and not yet answered, by the asking's id; and
@@ -302,6 +380,19 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
   // The chrome layout ws was last told: it's told again only when it
   // changes.
   let layout: V1.ChromeMode = "standard";
+  // What the page has said of conversations, and what ws was last told of
+  // it: it's told again only when that changes.
+  const talks = !!welcome.conversations;
+  let settings: Omit<V1.Conversation, "type"> = { ask: false, allow: [...V1.CONVERSATION_FORMS] };
+  let toldTalk = "";
+  let status: ConversationStatus = { open: false, working: false };
+  const tellTalk = () => {
+    const m: V1.Conversation = { type: "ws:conversation", ...settings };
+    const said = JSON.stringify(m);
+    if (said === toldTalk || closed || !talks) return;
+    toldTalk = said;
+    send(m);
+  };
   const on = <F>(fns: Set<F>, fn: F) => {
     fns.add(fn);
     return () => {
@@ -375,6 +466,10 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
         break;
       case "ws:outside":
         for (const fn of [...outside]) fn();
+        break;
+      case "ws:conversation-state":
+        status = m.as === undefined ? { open: m.open, working: m.working } : { open: m.open, as: m.as, working: m.working };
+        for (const fn of [...conversed]) fn(status);
         break;
     }
   };
@@ -451,6 +546,44 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
       if (mode === layout || closed) return;
       layout = mode;
       send({ type: "ws:chrome-layout", mode });
+    },
+    conversation: {
+      available: talks,
+      get status() {
+        return status;
+      },
+      set(say) {
+        const next: Record<string, unknown> = { ...settings };
+        for (const [key, value] of Object.entries(say)) {
+          if (!["ask", "allow", "placeholder", "holding", "context", "suggestions"].includes(key)) continue;
+          if (value === undefined) delete next[key];
+          else next[key] = Array.isArray(value) ? [...value] : value;
+        }
+        if (next.ask === undefined) next.ask = false;
+        if (next.allow === undefined) next.allow = [...V1.CONVERSATION_FORMS];
+        const allow = next.allow as unknown[];
+        const bad = allow.find((f) => !V1.isConversationForm(f));
+        if (bad !== undefined) throw new TypeError(`conversation.set({ allow }): "${String(bad)}" isn't a form: they're ${V1.CONVERSATION_FORMS.join(", ")}.`);
+        const holding = next.holding as Holding | undefined;
+        if (holding && !holding.label) throw new TypeError("conversation.set({ holding }): a holding has a label, for its chip.");
+        settings = next as typeof settings;
+        tellTalk();
+      },
+      open(options = {}) {
+        if (options.as !== undefined && !V1.isConversationForm(options.as)) throw new TypeError(`conversation.open({ as: "${String(options.as)}" }): the forms are ${V1.CONVERSATION_FORMS.join(", ")}.`);
+        if (!talks || closed) return;
+        // What it opens with is what the page has said, so ws hears that first.
+        tellTalk();
+        const m: V1.ConversationOpen = { type: "ws:conversation-open" };
+        if (options.message?.trim()) m.message = options.message;
+        if (options.context?.trim()) m.context = options.context;
+        if (options.as) m.as = options.as;
+        send(m);
+      },
+      close() {
+        if (talks && !closed) send({ type: "ws:conversation-close" });
+      },
+      onChange: (fn) => on(conversed, fn),
     },
     setTitle(title) {
       if (doc) doc.title = title;
