@@ -227,6 +227,19 @@ How long the card waits before it shows, and after it's closed, is ws's.
 
 **They're awaited.** Asking for one gives a promise of what came of it, which settles when the UI closes: with the UI's result when ws finished it, and with `undefined` when it was dismissed. So a UI that does something (one that saves, say, once ws has one) reads as a call that does it: the app awaits it, and goes on with what it was given back. The card's result is nothing: it only closes.
 
+A thing of the plugin's that lives in a repo is put there, and saved there, by ws: where it goes, the commit and the landing are ws's, so the app has the button and asks ws for the rest.
+
+```ts
+// Promote: ws shows where it's to live, by the button, and does it when the person says.
+const there = await ws.ui.promoteThing(button, { kind: "sketch", ref: "sketch-12", title });
+if (there) show(`It lives in ${there.thing.repo} now`);
+
+// Save: the button's the asking. ws saves, and says by the button how it went.
+const saved = await ws.ui.saveThing(button, { kind: "sketch", ref: "sketch-12", title });
+```
+
+Each resolves with what was done (`ThingSaved`: the thing as it is in its repo now, and whether anything changed there), or with nothing where it wasn't. ws asks the plugin for the thing itself and tells it where it is, so the app passes nothing on.
+
 Each UI is a method of its own, and all of them are made of `ws.ui.open`, which asks for one by its name:
 
 ```ts

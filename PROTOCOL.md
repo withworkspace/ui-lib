@@ -72,7 +72,7 @@ Version 1 has gained since it began:
 
 - [Refs](#refs) (`ws:refs`, `ws:refs-found`, `ws:refs-changed`, and the welcome's `refs`), in this package's 0.3.0 and the ws built on it.
 - [The frame's edge](#the-frames-edge) (`ws:outside`, the shell's `.ws-backdrop`, and the token `scrim`), in the release after 0.3.0 and the ws built on it. The welcome doesn't say whether ws has them: in a ws from before, a page hears no `ws:outside`, and a backdrop dims the frame alone.
-- [ws's own UI](#wss-own-ui) (`ws:ui-open`, `ws:ui-close`, `ws:ui-closed`, and the welcome's `uis`), and the first of them, [a ref's card](#a-refs-card), in the release after 0.8.0 and the ws built on it. A ws from before lists none and answers nothing, and a ref in a page there has no card.
+- [ws's own UI](#wss-own-ui) (`ws:ui-open`, `ws:ui-close`, `ws:ui-closed`, and the welcome's `uis`), with [a ref's card](#a-refs-card) and [a thing in a repo](#a-thing-in-a-repo), in the release after 0.8.0 and the ws built on it. A ws from before lists none and answers nothing, and a ref in a page there has no card.
 - [Conversations](#conversations) (`ws:conversation`, `ws:conversation-open`, `ws:conversation-close`, `ws:conversation-state`, and the welcome's `conversations`), in the release after 0.6.0 and the ws built on it.
 
 Version 1 broke that rule once, in the ws release after 0.4.0 and this package's 0.2.0, while only withworkspace's own plugins were built on it: ws took over the history, `ws:go` replaced `ws:path`, `ws:open` and `data-ws` links, and the welcome's `plugin` gained `at`. A page built on 0.1.0 still connects to a later ws, but its moves within the app aren't followed. Rebuilt on 0.2.0, it is.
@@ -361,6 +361,8 @@ Each has a name, what it's given, and what comes of it. They're `Uis` in `@withw
 | `ui` | `with` | `result` | What it is |
 |---|---|---|---|
 | `ref-card` | `ref` | None | [A ref's card](#a-refs-card), by the ref's words |
+| `thing-promote` | `kind`, `ref`, `title` | Where the thing is now, or none | [Putting a thing in a repo](#a-thing-in-a-repo), by the button that asked |
+| `thing-save` | `kind`, `ref`, `title` | The thing as it is there now, or none | [Saving a thing to its repo](#a-thing-in-a-repo), by the button pressed |
 
 ### A ref's card
 
@@ -378,6 +380,29 @@ In ws, a ref has a card: more about what's named (a file's lines, where a missio
 - **One card is up at a time.**
 - **ws takes it down when it moves the app** (`ws:navigate`), as well as when the page goes.
 - **A ref ws can't read has no card.**
+
+### A thing in a repo
+
+A plugin's kind of thing can live in a repo, for everyone with the repo: a folder there, which ws names, commits and lands (the plugin protocol's Remotes). Putting one there, and saving it, are the person's to ask for, and ws's to do: where it goes, the commit and the landing are ws's. So the page has the button, and ws has the rest. ws asks the plugin itself for the thing as its folder is to hold it, and tells the plugin where it is: the page needn't pass anything on.
+
+| | |
+|---|---|
+| `with.kind` | The kind the thing is one of, as the plugin registered it: `sketch` |
+| `with.ref` | The plugin's name for it: `sketch-12` |
+| `with.title` | Optional. What it's called, for ws to say |
+| `box` | Where the button is: what ws shows is by it |
+
+- **`thing-promote` is a dialog.** It says where the thing is to live (the folder ws would name for it, in the workspace's records repo), lets the person say somewhere else, and does it when they say. Dismissed, nothing's done.
+- **`thing-save` saves at once:** the person asked by pressing the button. ws says by the button how it's going, then what came of it, and goes. It stays only when it couldn't save, with why.
+- **The result is what was done:**
+
+  ```json
+  { "thing": { "name": "records/sketches/release-flow/", "repo": "records", "path": "sketches/release-flow/", "title": "Release flow", "version": "3f9c2a1b…" },
+    "changed": true, "said": "Saved: landed on main (ce64e15)" }
+  ```
+
+  `thing` is the thing as it is in its repo now. `changed` is false when it was there as it is already. `merged` is true when it had changed there since the plugin last had it, and the plugin brought the two together. `capsule` is the capsule it was left in, where its repo takes pull requests: it isn't on the default branch yet.
+- **No result is nothing done:** the person thought better of it, or it couldn't be saved and they closed what said so.
 
 The package asks for it for anything [drawn as a ref](#drawing-one), by `markRefs` or by the app: there's nothing to call. It closes the card when the page scrolls or is pressed, and asks again, from where the words are now, when the scroll was to bring the keys' focus into view.
 

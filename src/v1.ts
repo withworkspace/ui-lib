@@ -223,13 +223,69 @@ export interface Uis {
     };
     result: undefined;
   };
+  /**
+   * Putting one of the plugin's own things in a repo, for everyone with
+   * the repo: a dialog by the button that asked for it, which says where
+   * it's to live, lets the person say somewhere else, and does it when
+   * they say. ws asks the plugin for the thing, names its folder, commits
+   * and lands it. What comes of it is where the thing is now; nothing,
+   * where the person thought better of it.
+   */
+  "thing-promote": {
+    with: ThingAsked;
+    result: ThingSaved | undefined;
+  };
+  /**
+   * Saving one of the plugin's own things that's in a repo, as the person
+   * has it now: asked for by the button they pressed to save. ws saves at
+   * once, says by the button how it's going and what came of it, and
+   * stays there only when it couldn't. What comes of it is the thing as
+   * it is in its repo now; nothing, where it wasn't saved.
+   */
+  "thing-save": {
+    with: ThingAsked;
+    result: ThingSaved | undefined;
+  };
+}
+
+/** ThingAsked is one of the plugin's own things, as a UI about it is given it. */
+export interface ThingAsked {
+  /** The kind it's one of, as the plugin registered it: sketch. */
+  kind: string;
+  /** The plugin's name for it: sketch-12. */
+  ref: string;
+  /** What it's called, for the UI to say. */
+  title?: string;
+}
+
+/** ThingSaved is what putting a thing in a repo, or saving it there, did. */
+export interface ThingSaved {
+  /** The thing as it is in its repo now. */
+  thing: {
+    /** Its name in ws: its folder, as ws names one (records/sketches/release-flow/). */
+    name: string;
+    /** The repo it's in, and its folder there. */
+    repo: string;
+    path: string;
+    title: string;
+    /** Its main file's version: another when it changes. */
+    version: string;
+  };
+  /** Whether it changed anything there: not when it was as it is already. */
+  changed: boolean;
+  /** Whether it had changed there since, and the two were brought together. */
+  merged?: boolean;
+  /** The capsule it was left in, where its repo takes pull requests: it isn't on the default branch yet. */
+  capsule?: string;
+  /** What was done, in a sentence. */
+  said?: string;
 }
 
 /** The name of one of ws's UIs. */
 export type UiName = keyof Uis;
 
 /** The names of the UIs this release knows of. */
-export const UI_NAMES: readonly UiName[] = ["ref-card"];
+export const UI_NAMES: readonly UiName[] = ["ref-card", "thing-promote", "thing-save"];
 
 /**
  * UiOpen asks ws for one of its own UIs, drawn by ws over the frame and

@@ -402,6 +402,31 @@ describe("ws's own UI, asked for by the page", () => {
     expect(() => ws.ui.refCard(box, "")).toThrow(TypeError);
   });
 
+  test("ui.promoteThing and ui.saveThing ask ws to put a thing in a repo, and to save it there, by the button", async () => {
+    const { host, ws } = await connected();
+    const thing = { kind: "sketch", ref: "sketch-12", title: "Release flow" };
+    const there = { thing: { name: "records/sketches/release-flow/", repo: "records", path: "sketches/release-flow/", title: "Release flow", version: "3f9c2a" }, changed: true };
+
+    const promoting = ws.ui.promoteThing(box, thing);
+    expect(await host.next("ws:ui-open")).toEqual({ type: "ws:ui-open", id: 1, ui: "thing-promote", box, with: thing });
+    host.closeUi(1, there);
+    expect(await promoting).toEqual(there);
+
+    // Saved from the button pressed: what's said of it is all that's sent.
+    const saving = ws.ui.saveThing(box, { kind: "sketch", ref: "sketch-12" });
+    expect(await host.next("ws:ui-open")).toEqual({ type: "ws:ui-open", id: 2, ui: "thing-save", box, with: { kind: "sketch", ref: "sketch-12" } });
+    host.closeUi(2);
+    // Dismissed, or not saved: nothing came of it.
+    expect(await saving).toBeUndefined();
+
+    // A thing is its kind and the plugin's name for it.
+    expect(() => ws.ui.saveThing(box, { kind: "sketch", ref: "" })).toThrow(TypeError);
+    // A ws from before it could: what's awaited fails at once.
+    const old = await connected({ uis: ["ref-card"] });
+    expect(old.ws.ui.has("thing-save")).toBe(false);
+    await expect(old.ws.ui.saveThing(box, thing)).rejects.toThrow("This ws has no UI called thing-save. Update ws.");
+  });
+
   test("closing the client settles what's still open as undefined, and asks for nothing more", async () => {
     const { host, ws } = await connected();
     const card = ws.ui.open("ref-card", { with: { ref: "a" } });

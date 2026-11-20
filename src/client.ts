@@ -90,6 +90,10 @@ export interface ConnectOptions {
 }
 
 export type Theme = V1.Theme;
+/** One of the plugin's own things, as a UI of ws's about it is given it. */
+export type ThingAsked = V1.ThingAsked;
+/** What putting a thing in a repo, or saving it there, did. */
+export type ThingSaved = V1.ThingSaved;
 /** One of ws's names in a run of text, as ws found it. */
 export type FoundRef = V1.FoundRef;
 
@@ -206,6 +210,21 @@ export interface Ui {
    * already: this is for what isn't a link, such as words on a canvas.
    */
   refCard(target: Element | Box, ref: string): () => void;
+  /**
+   * promoteThing asks ws to put one of the plugin's own things in a repo,
+   * from a button on the page: ws shows where it's to live, by the
+   * button, and does it when the person says. Awaited, it's where the
+   * thing is now, or nothing where they thought better of it. The plugin
+   * is told too, by ws, as it gives the thing.
+   */
+  promoteThing(target: Element | Box, thing: ThingAsked): UiOpened<ThingSaved>;
+  /**
+   * saveThing asks ws to save one of the plugin's own things to the repo
+   * it lives in, as the person has it now, from the button they pressed:
+   * ws saves it, and says by the button how it went. Awaited, it's the
+   * thing as it is there now, or nothing where it wasn't saved.
+   */
+  saveThing(target: Element | Box, thing: ThingAsked): UiOpened<ThingSaved>;
 }
 
 /** Client is the app's handle on ws, once they've shaken hands. */
@@ -537,6 +556,13 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
     return () => card.close();
   };
 
+  const aboutThing = (how: string, thing: ThingAsked) => {
+    if (!thing?.kind || !thing.ref) throw new TypeError(`ui.${how}(target, thing): a thing is its kind and the plugin's name for it, { kind: "sketch", ref: "sketch-12" }.`);
+    return { kind: thing.kind, ref: thing.ref, ...(thing.title ? { title: thing.title } : {}) };
+  };
+  const promoteThing = (target: Element | Box, thing: ThingAsked) => openUi("thing-promote", { target, with: aboutThing("promoteThing", thing) });
+  const saveThing = (target: Element | Box, thing: ThingAsked) => openUi("thing-save", { target, with: aboutThing("saveThing", thing) });
+
   if (doc) applyTheme(doc, theme);
   const wired = doc ? wire(doc, welcome, send, open, refCard) : undefined;
 
@@ -658,7 +684,7 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
         tellHere();
       };
     },
-    ui: { has: (name) => hasUi.has(name), open: openUi, refCard },
+    ui: { has: (name) => hasUi.has(name), open: openUi, refCard, promoteThing, saveThing },
     setChromeLayout(mode) {
       if (mode !== "expanded" && mode !== "standard") throw new TypeError(`setChromeLayout("${String(mode)}"): the layout is "expanded" or "standard".`);
       if (mode === layout || closed) return;
