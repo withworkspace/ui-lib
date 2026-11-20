@@ -72,7 +72,7 @@ Version 1 has gained since it began:
 
 - [Refs](#refs) (`ws:refs`, `ws:refs-found`, `ws:refs-changed`, and the welcome's `refs`), in this package's 0.3.0 and the ws built on it.
 - [The frame's edge](#the-frames-edge) (`ws:outside`, the shell's `.ws-backdrop`, and the token `scrim`), in the release after 0.3.0 and the ws built on it. The welcome doesn't say whether ws has them: in a ws from before, a page hears no `ws:outside`, and a backdrop dims the frame alone.
-- [ws's own UI](#wss-own-ui) (`ws:ui-open`, `ws:ui-close`, `ws:ui-closed`), and the first of them, [a ref's card](#a-refs-card), in the release after 0.8.0 and the ws built on it. The welcome doesn't say whether ws has them: a ws from before answers nothing, and a ref in a page there has no card.
+- [ws's own UI](#wss-own-ui) (`ws:ui-open`, `ws:ui-close`, `ws:ui-closed`, and the welcome's `uis`), and the first of them, [a ref's card](#a-refs-card), in the release after 0.8.0 and the ws built on it. A ws from before lists none and answers nothing, and a ref in a page there has no card.
 - [Conversations](#conversations) (`ws:conversation`, `ws:conversation-open`, `ws:conversation-close`, `ws:conversation-state`, and the welcome's `conversations`), in the release after 0.6.0 and the ws built on it.
 
 Version 1 broke that rule once, in the ws release after 0.4.0 and this package's 0.2.0, while only withworkspace's own plugins were built on it: ws took over the history, `ws:go` replaced `ws:path`, `ws:open` and `data-ws` links, and the welcome's `plugin` gained `at`. A page built on 0.1.0 still connects to a later ws, but its moves within the app aren't followed. Rebuilt on 0.2.0, it is.
@@ -112,6 +112,7 @@ ws answers on the port, with a welcome or a refusal.
   "theme": { "scheme": "dark", "vars": { "--ws-bg": "#16161a", "--ws-accent": "#a08ad0" } },
   "keys": { "chords": ["k", "p"], "bare": ["?", "g"], "leaders": ["g"], "within": 900 },
   "refs": true,
+  "uis": ["ref-card"],
   "conversations": true
 }
 ```
@@ -129,6 +130,7 @@ ws answers on the port, with a welcome or a refusal.
 | `theme.vars` | Each token's value now, by its `--ws-*` name: every token of this version ([below](#the-tokens)), and any more ws has |
 | `keys` | The keys ws owns, which the page passes on ([below](#keys)) |
 | `refs` | Optional. `true` when ws finds its names in text: it answers `ws:refs` ([below](#refs)). A ws from before it did leaves it out, and a page there doesn't ask. |
+| `uis` | Optional. The UIs of its own this ws has, by name: the ones it answers a `ws:ui-open` for ([ws's own UI](#wss-own-ui)). A ws from before it had any leaves it out, and a page there asks for none. |
 | `conversations` | Optional. `true` when ws holds conversations about the page ([below](#conversations)). A ws from before it did leaves it out, and a page there says nothing of them. |
 
 What ws doesn't send: what a `ws:go` does (that's ws's to decide when it gets one), its routes, its API, or who's signed in.
@@ -348,7 +350,8 @@ It isn't a way for a page to describe a UI of its own for ws to draw. What a pag
   { "type": "ws:ui-closed", "id": 7, "error": "This ws has no UI called thing-remote-save. Update ws." }
   ```
 
-  The sentence is for whoever's writing the page. A ws from before any of this answers nothing at all.
+  The sentence is for whoever's writing the page.
+- **The welcome says which UIs this ws has** (`uis`), so a page needn't ask to find out: it offers what's there, and asks for nothing else. A ws from before any of this lists none, and answers no `ws:ui-open` at all. The package's client asks only for what's listed: for anything else, what the page is waiting on fails at once, with the same sentence, and isn't left waiting.
 - **ws takes down everything a page asked for when the page goes:** the frame loaded again, another page connected, or ws went somewhere else. It says nothing of them.
 
 ### The UIs

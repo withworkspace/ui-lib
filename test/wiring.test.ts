@@ -499,7 +499,7 @@ describe("the pointer on a ref", () => {
     expect(closed()).toBe(1);
   });
 
-  test("a ws with no card for a ref is asked, and nothing comes of it", async () => {
+  test("in a ws with no card for a ref, nothing comes of the pointer on one", async () => {
     const p = await page({ uis: [] });
     const thing = at(p.add(drawn).querySelector(".ws-ref")!, { x: 0, y: 0, width: 10, height: 10 });
     const unhandled: unknown[] = [];

@@ -163,17 +163,16 @@ export interface Conversations {
 /** Where something is on the page: its box, as getBoundingClientRect() gives it. */
 export type Box = V1.Box;
 
-/** One of ws's UIs, once it's been asked for. */
-export interface UiOpened<Result> {
-  /**
-   * What came of it, once it's closed: what the UI's result is, or
-   * undefined when it was dismissed, or closed by the page. It rejects
-   * with a UiError when ws couldn't show it.
-   */
-  readonly result: Promise<Result | undefined>;
-  /** close takes it back: ws takes it down, and result is undefined. */
+/**
+ * One of ws's UIs, once it's been asked for. It's a promise of what came
+ * of it, so it's awaited: it resolves once the UI's closed, with what
+ * the UI's result is, or with undefined when it was dismissed or the
+ * page closed it. It rejects with a UiError when ws couldn't show it.
+ */
+export type UiOpened<Result> = Promise<Result | undefined> & {
+  /** close takes it back: ws takes it down, and it resolves with undefined. */
   close(): void;
-}
+};
 
 /**
  * Ui is ws's own UI, asked for by the page and drawn by ws over the
@@ -184,10 +183,18 @@ export interface UiOpened<Result> {
  */
 export interface Ui {
   /**
+   * has is whether this ws has the UI of that name: one from before the
+   * UI was hasn't. For a page that offers something only where ws can
+   * do it (a button that saves).
+   */
+  has(name: string): boolean;
+  /**
    * open asks for one of ws's UIs by its name, with what it's given, from
    * somewhere on the page: an element, whose box is read now, or a box.
-   * Each UI has a method of its own here that says what it's for: this is
-   * what they're made of.
+   * What it returns is awaited for what came of it, and can be closed.
+   * Asked of a ws that hasn't that UI, it rejects at once. Each UI has a
+   * method of its own here that says what it's for: this is what they're
+   * made of.
    */
   open<N extends V1.UiName>(name: N, options: { target?: Element | Box; with: V1.Uis[N]["with"] }): UiOpened<V1.Uis[N]["result"]>;
   /**
@@ -499,16 +506,20 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
   // by the asking's id.
   const uis = new Map<number, { ui: string; done: (result: unknown) => void; failed: (err: UiError) => void }>();
   let uiAskings = 0;
+  // The UIs this ws said it has. One from before it had any said none.
+  const hasUi = new Set(welcome.uis ?? []);
   const openUi = <N extends V1.UiName>(name: N, options: { target?: Element | Box; with: V1.Uis[N]["with"] }): UiOpened<V1.Uis[N]["result"]> => {
     type Result = V1.Uis[N]["result"] | undefined;
     // Nobody's there to show it.
-    if (closed) return { result: Promise.resolve(undefined), close() {} };
+    if (closed) return Object.assign(Promise.resolve<Result>(undefined), { close() {} });
+    // A ws that hasn't this UI wouldn't answer, or would only say so: it
+    // fails now, so what's awaiting it isn't left waiting.
+    if (!hasUi.has(name)) return Object.assign(Promise.reject<Result>(new UiError(`This ws has no UI called ${name}. Update ws.`, name)), { close() {} });
     const id = ++uiAskings;
     const result = new Promise<Result>((resolve, reject) => uis.set(id, { ui: name, done: (r) => resolve(r as Result), failed: reject }));
     const box = boxOf(options.target);
     send({ type: "ws:ui-open", id, ui: name, ...(box ? { box } : {}), with: { ...options.with } });
-    return {
-      result,
+    return Object.assign(result, {
       close() {
         const asked = uis.get(id);
         if (!asked) return;
@@ -516,13 +527,13 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
         send({ type: "ws:ui-close", id });
         asked.done(undefined);
       },
-    };
+    });
   };
   const refCard = (target: Element | Box, ref: string) => {
     if (!ref) throw new TypeError('ui.refCard(target, ""): a ref is ws\'s word for it, as findRefs gave it.');
     const card = openUi("ref-card", { target, with: { ref } });
     // A ws that has no card for it shows none: there's nothing to do about it here.
-    card.result.catch(() => {});
+    card.catch(() => {});
     return () => card.close();
   };
 
@@ -647,7 +658,7 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
         tellHere();
       };
     },
-    ui: { open: openUi, refCard },
+    ui: { has: (name) => hasUi.has(name), open: openUi, refCard },
     setChromeLayout(mode) {
       if (mode !== "expanded" && mode !== "standard") throw new TypeError(`setChromeLayout("${String(mode)}"): the layout is "expanded" or "standard".`);
       if (mode === layout || closed) return;

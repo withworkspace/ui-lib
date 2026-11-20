@@ -225,15 +225,17 @@ close();
 
 How long the card waits before it shows, and after it's closed, is ws's.
 
-Each UI is a method here, and all of them are made of `ws.ui.open`, which asks for one by its name:
+**They're awaited.** Asking for one gives a promise of what came of it, which settles when the UI closes: with the UI's result when ws finished it, and with `undefined` when it was dismissed. So a UI that does something (one that saves, say, once ws has one) reads as a call that does it: the app awaits it, and goes on with what it was given back. The card's result is nothing: it only closes.
+
+Each UI is a method of its own, and all of them are made of `ws.ui.open`, which asks for one by its name:
 
 ```ts
 const card = ws.ui.open("ref-card", { target: element, with: { ref } });
-card.close();        // take it back
-await card.result;   // what came of it, once ws closed it: undefined when it was dismissed, or closed by the app
+card.close();   // take it back: it resolves with undefined
+await card;     // what came of it
 ```
 
-`target` is an element, whose box is read as it is now, or a box. `result` rejects with a `UiError` when ws couldn't show it: this ws is from before that UI, or it wasn't given what the UI takes. A ws from before any of them answers nothing, so what's awaited there stays waiting. [`PROTOCOL.md`](PROTOCOL.md#wss-own-ui) has what's said, and the UIs there are.
+`target` is an element, whose box is read as it is now, or a box. It rejects with a `UiError` when ws couldn't show it: it wasn't given what the UI takes, or this ws is from before that UI. Which UIs a ws has, it says as the app connects, so one it hasn't fails at once and nothing's left waiting; `ws.ui.has(name)` says so beforehand, for a button that's only there where ws can do what it's for. [`PROTOCOL.md`](PROTOCOL.md#wss-own-ui) has what's said, and the UIs there are.
 
 ### What's open beyond the address
 
@@ -355,7 +357,7 @@ host.close();
 | `versions` | The frame protocol versions the host says it speaks | `[1]` |
 | `silent` | Never answer | `false` |
 | `refs` | What the host finds in a run of text, as ws finds its names. `false` is a ws from before it could be asked. | Nothing |
-| `uis` | The names of the UIs of its own the host has. Asked for another, it says it has none, as a ws from before that UI does. | Every one this release knows |
+| `uis` | The names of the UIs of its own the host has, which its welcome lists. `false` is a ws from before it had any. | Every one this release knows |
 | `conversations` | `false` is a ws from before it held conversations about pages | `true` |
 
 `named()` makes a finder from some names, each with where it goes. It finds them wherever they're whole words:

@@ -285,20 +285,32 @@ describe("ws's own UI, asked for by the page", () => {
     expect(await host.next("ws:ui-open")).toEqual({ type: "ws:ui-open", id: 1, ui: "ref-card", with: { ref: "thing:PROJ-12" } });
   });
 
-  test("its result is what ws closed it with, and undefined when ws only dismissed it", async () => {
+  test("awaited, it's what ws closed it with, and undefined when ws only dismissed it", async () => {
     const { host, ws } = await connected();
     // What comes of a UI is its own to say: a card's is nothing, so these
     // are read as whatever they are.
-    const saved = ws.ui.open("ref-card", { with: { ref: "a" } }) as { result: Promise<unknown> };
+    const saved: Promise<unknown> = ws.ui.open("ref-card", { with: { ref: "a" } });
     const dismissed = ws.ui.open("ref-card", { with: { ref: "b" } });
     await settled(ws, host);
 
     host.closeUi(1, { saved: "records:sketches/release-flow.excalidraw" });
     host.closeUi(2);
 
-    expect(await saved.result).toEqual({ saved: "records:sketches/release-flow.excalidraw" });
-    expect(await dismissed.result).toBeUndefined();
+    expect(await saved).toEqual({ saved: "records:sketches/release-flow.excalidraw" });
+    expect(await dismissed).toBeUndefined();
     expect(host.uis).toEqual([]);
+  });
+
+  test("it waits for as long as ws has it open", async () => {
+    const { host, ws } = await connected();
+    let came: unknown = "nothing yet";
+    const asking = ws.ui.open("ref-card", { with: { ref: "a" } }).then((result) => (came = result ?? "dismissed"));
+    await settled(ws, host);
+    expect(came).toBe("nothing yet");
+
+    host.closeUi(1);
+
+    expect(await asking).toBe("dismissed");
   });
 
   test("close takes it back: ws is told, and its result is undefined", async () => {
@@ -308,7 +320,7 @@ describe("ws's own UI, asked for by the page", () => {
     card.close();
     card.close(); // twice is once
 
-    expect(await card.result).toBeUndefined();
+    expect(await card).toBeUndefined();
     await settled(ws, host);
     expect(host.sent.filter((m) => m.type === "ws:ui-close")).toEqual([{ type: "ws:ui-close", id: 1 }]);
     expect(host.uis).toEqual([]);
@@ -322,16 +334,46 @@ describe("ws's own UI, asked for by the page", () => {
 
     host.closeUi(1, "late");
 
-    expect(await card.result).toBeUndefined();
+    expect(await card).toBeUndefined();
   });
 
-  test("a UI this ws hasn't rejects with a UiError that says so", async () => {
-    const { ws } = await connected({ uis: [] });
+  test("has says whether this ws has a UI, as its welcome listed them", async () => {
+    const { ws } = await connected();
+    expect(ws.ui.has("ref-card")).toBe(true);
+    expect(ws.ui.has("thing-remote-save")).toBe(false);
+
+    const before = await connected({ uis: false });
+    expect(before.ws.ui.has("ref-card")).toBe(false);
+  });
+
+  test("a UI this ws hasn't rejects at once with a UiError that says so, and ws isn't asked", async () => {
+    const { host, ws } = await connected({ uis: [] });
 
     const card = ws.ui.open("ref-card", { with: { ref: "a" } });
 
-    await expect(card.result).rejects.toBeInstanceOf(UiError);
-    await expect(card.result).rejects.toMatchObject({ ui: "ref-card", message: "This ws has no UI called ref-card. Update ws." });
+    await expect(card).rejects.toBeInstanceOf(UiError);
+    await expect(card).rejects.toMatchObject({ ui: "ref-card", message: "This ws has no UI called ref-card. Update ws." });
+    card.close(); // nothing to take back
+    await settled(ws, host);
+    expect(host.sent.filter((m) => m.type === "ws:ui-open" || m.type === "ws:ui-close")).toEqual([]);
+  });
+
+  test("in a ws from before it had any, what's awaited fails at once and isn't left waiting", async () => {
+    const { host, ws } = await connected({ uis: false });
+
+    await expect(ws.ui.open("ref-card", { with: { ref: "a" } })).rejects.toThrow("This ws has no UI called ref-card. Update ws.");
+    await settled(ws, host);
+    expect(host.sent.filter((m) => m.type === "ws:ui-open")).toEqual([]);
+  });
+
+  test("one ws couldn't show, for what it was given, rejects with what ws said", async () => {
+    const { host, ws } = await connected();
+    const card = ws.ui.open("ref-card", { with: { ref: "a" } });
+    await settled(ws, host);
+
+    host.send({ type: "ws:ui-closed", id: 1, error: "ref-card is asked for with a ref, and the box of its words." });
+
+    await expect(card).rejects.toMatchObject({ name: "UiError", ui: "ref-card", message: "ref-card is asked for with a ref, and the box of its words." });
   });
 
   test("each asking has a number of its own", async () => {
@@ -367,8 +409,8 @@ describe("ws's own UI, asked for by the page", () => {
 
     ws.close();
 
-    expect(await card.result).toBeUndefined();
-    expect(await ws.ui.open("ref-card", { with: { ref: "b" } }).result).toBeUndefined();
+    expect(await card).toBeUndefined();
+    expect(await ws.ui.open("ref-card", { with: { ref: "b" } })).toBeUndefined();
     expect(host.sent.filter((m) => m.type === "ws:ui-open")).toHaveLength(1);
   });
 });

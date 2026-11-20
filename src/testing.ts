@@ -36,11 +36,13 @@ export interface FakeHostOptions {
    */
   refs?: FindRefs | false;
   /**
-   * The names of the UIs of its own the host has (ws:ui-open). Every one
-   * this release knows of, by default. Asked for one it hasn't, it says
-   * so, as a ws from before that UI does.
+   * The names of the UIs of its own the host has (ws:ui-open), which its
+   * welcome lists. Every one this release knows of, by default. Asked
+   * for one it hasn't, it says so, as a ws from before that UI does.
+   * false is a ws from before it had any: its welcome lists none, and a
+   * ws:ui-open gets no answer.
    */
-  uis?: readonly string[];
+  uis?: readonly string[] | false;
   /**
    * false is a ws from before it held conversations about pages: its
    * welcome doesn't say it does, and the page says nothing of them.
@@ -256,7 +258,7 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
     if (m.type === "ws:here") here = m.name;
     // As ws: one of its UIs is kept until it's closed, and one it hasn't
     // is said to be none of its own.
-    if (m.type === "ws:ui-open") {
+    if (m.type === "ws:ui-open" && has) {
       if (has.includes(m.ui)) uis = [...uis, { id: m.id, ui: m.ui, ...(m.box ? { box: m.box } : {}), with: m.with ?? {} }];
       else say({ type: "ws:ui-closed", id: m.id, error: `This ws has no UI called ${m.ui}. Update ws.` });
     }
@@ -305,6 +307,7 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
         theme,
         keys,
         ...(refs ? { refs: true } : {}),
+        ...(has ? { uis: [...has] } : {}),
         ...(conversations ? { conversations: true } : {}),
       });
     },

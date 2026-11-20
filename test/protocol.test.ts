@@ -120,6 +120,13 @@ describe("the guards", () => {
     expect(V1.isWelcome({ ...welcome, refs: "yes" })).toBe(false);
   });
 
+  test("V1.isWelcome takes a welcome that lists the UIs ws has, and one from before it had any", () => {
+    expect(V1.isWelcome({ ...welcome, uis: ["ref-card", "a-ui-from-a-later-release"] })).toBe(true);
+    expect(V1.isWelcome({ ...welcome, uis: [] })).toBe(true);
+    expect(V1.isWelcome({ ...welcome, uis: true })).toBe(false);
+    expect(V1.isWelcome({ ...welcome, uis: ["ref-card", 2] })).toBe(false);
+  });
+
   test("V1.isFoundRef takes a ref with where it is, what it is and where it goes", () => {
     expect(V1.isFoundRef(found)).toBe(true);
     expect(V1.isFoundRef({ ...found, shape: "pill", accent: "#6e509c" })).toBe(true);

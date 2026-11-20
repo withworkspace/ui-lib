@@ -79,6 +79,13 @@ export interface Welcome {
    */
   refs?: boolean;
   /**
+   * The UIs of its own this ws has, by name: the ones a ws:ui-open is
+   * answered for. A ws from before it had any doesn't say, and a page
+   * there asks for none: what it would have awaited fails at once, and
+   * doesn't wait for an answer that isn't coming.
+   */
+  uis?: string[];
+  /**
    * ws holds conversations about the page: it answers ws:conversation,
    * ws:conversation-open and ws:conversation-close. A ws from before it
    * did doesn't say so, and a page there shows no ask of its own.
@@ -450,6 +457,7 @@ export function isWelcome(m: unknown): m is Welcome {
     isTheme(m.theme) &&
     isKeys(m.keys) &&
     (m.refs === undefined || typeof m.refs === "boolean") &&
+    (m.uis === undefined || isStrings(m.uis)) &&
     (m.conversations === undefined || typeof m.conversations === "boolean")
   );
 }
