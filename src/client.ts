@@ -225,6 +225,17 @@ export interface Ui {
    * thing as it is there now, or nothing where it wasn't saved.
    */
   saveThing(target: Element | Box, thing: ThingAsked): UiOpened<ThingSaved>;
+  /**
+   * viewPicture shows a picture over the whole of ws's window, in ws's
+   * own viewer, to look around in. src is its address, as an <img>'s:
+   * relative to the page, or on the web (https:), or the picture itself
+   * (data:image/…). One that's on ws's is the plugin's own (its HTTP, its
+   * pages' files): anything else there, and a blob:, is a TypeError.
+   * target is what was clicked, if anything was. Awaited, it settles as
+   * the person closes it. An <img> with data-ws-view opens in it on a
+   * click, with nothing called.
+   */
+  viewPicture(src: string, options?: { title?: string; target?: Element | Box }): UiOpened<undefined>;
 }
 
 /** Client is the app's handle on ws, once they've shaken hands. */
@@ -563,8 +574,37 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
   const promoteThing = (target: Element | Box, thing: ThingAsked) => openUi("thing-promote", { target, with: aboutThing("promoteThing", thing) });
   const saveThing = (target: Element | Box, thing: ThingAsked) => openUi("thing-save", { target, with: aboutThing("saveThing", thing) });
 
+  const viewPicture = (src: string, options: { title?: string; target?: Element | Box } = {}) => {
+    // ws is given the full address: a relative one is the page's.
+    let full = src;
+    try {
+      full = new URL(src, doc?.defaultView?.location.href).href;
+    } catch {
+      // Not an address at all: said below.
+    }
+    const page = doc?.defaultView?.location.origin;
+    const why = V1.pictureRefused(full, page && page !== "null" ? page : "", welcome.plugin);
+    if (why) throw new TypeError(`ui.viewPicture(src): ${why}`);
+    return openUi("picture", { target: options.target, with: { src: full, ...(options.title ? { title: options.title } : {}) } });
+  };
+  // A click on a picture drawn to be viewed: it's shown, if this ws can.
+  // What it's in (a link to the file) is followed where it can't.
+  const viewClicked = (el: Element) => {
+    if (!hasUi.has("picture")) return false;
+    const img = el.tagName === "IMG" ? (el as HTMLImageElement) : el.querySelector("img");
+    const src = img && (img.currentSrc || img.getAttribute("src"));
+    if (!img || !src) return false;
+    const title = el.getAttribute("data-ws-view") || img.getAttribute("alt") || img.getAttribute("title") || undefined;
+    try {
+      viewPicture(src, { title, target: img }).catch(() => {});
+    } catch {
+      return false;
+    }
+    return true;
+  };
+
   if (doc) applyTheme(doc, theme);
-  const wired = doc ? wire(doc, welcome, send, open, refCard) : undefined;
+  const wired = doc ? wire(doc, welcome, send, open, refCard, viewClicked) : undefined;
 
   port.onmessage = (e: MessageEvent) => {
     const m: unknown = e.data;
@@ -684,7 +724,7 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
         tellHere();
       };
     },
-    ui: { has: (name) => hasUi.has(name), open: openUi, refCard, promoteThing, saveThing },
+    ui: { has: (name) => hasUi.has(name), open: openUi, refCard, promoteThing, saveThing, viewPicture },
     setChromeLayout(mode) {
       if (mode !== "expanded" && mode !== "standard") throw new TypeError(`setChromeLayout("${String(mode)}"): the layout is "expanded" or "standard".`);
       if (mode === layout || closed) return;
@@ -773,6 +813,7 @@ function wire(
   send: (m: V1.PageMessage) => void,
   open: (address: string) => void,
   refCard: (target: Element, ref: string) => () => void,
+  viewClicked: (el: Element) => boolean,
 ): { stop(): void; left(): void } {
   const { keys } = welcome;
   let leaderAt = 0;
@@ -838,7 +879,13 @@ function wire(
   const onClick = (e: MouseEvent) => {
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     const target = e.target as Partial<Element> | null;
-    const a = target?.closest?.("a[href]") as HTMLAnchorElement | null | undefined;
+    // A picture drawn to be viewed is, before the link it's in is followed.
+    const viewable = target?.closest?.("[data-ws-view]");
+    if (viewable && viewClicked(viewable)) {
+      e.preventDefault();
+      return;
+    }
+    const a =target?.closest?.("a[href]") as HTMLAnchorElement | null | undefined;
     if (!a || typeof a.href !== "string" || a.hasAttribute("download")) return;
     const named = a.getAttribute("target");
     if (named && named !== "_self") return;

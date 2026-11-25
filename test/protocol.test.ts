@@ -55,7 +55,7 @@ void _names;
 describe("/protocol", () => {
   test("exports protocol 1's versions, tokens, guards and V1, and nothing that runs", () => {
     expect(Object.keys(protocol).sort()).toEqual(["PROTOCOL_VERSIONS", "TOKENS", "V1", "chooseVersion", "isConnect", "isRefuse"]);
-    expect(Object.keys(V1).sort()).toEqual(["CONVERSATION_FORMS", "UI_NAMES", "isBox", "isConversationForm", "isFoundRef", "isHostMessage", "isPageMessage", "isWelcome"]);
+    expect(Object.keys(V1).sort()).toEqual(["CONVERSATION_FORMS", "UI_NAMES", "isBox", "isConversationForm", "isFoundRef", "isHostMessage", "isPageMessage", "isWelcome", "pictureRefused"]);
     expect(PROTOCOL_VERSIONS).toEqual([1]);
   });
 
@@ -185,5 +185,30 @@ describe("the guards", () => {
     expect(V1.isPageMessage({ type: "ws:go", path: "/", later: true })).toBe(true);
     expect(V1.isHostMessage({ type: "ws:changed", what: "issues" })).toBe(true);
     expect(isConnect({ ...connect, later: true })).toBe(true);
+  });
+});
+
+describe("pictureRefused", () => {
+  const plugin = { api: "/plugins/jira", base: "/plugin-frame/jira" };
+  const refused = (src: string) => V1.pictureRefused(src, "http://ws.test", plugin);
+
+  test("takes a picture on the web, the picture itself, and the plugin's own on ws's", () => {
+    expect(refused("https://example.com/a.png")).toBeUndefined();
+    expect(refused("data:image/svg+xml;utf8,<svg/>")).toBeUndefined();
+    expect(refused("http://ws.test/plugins/jira/api/issues/RAM-3/attachments/1")).toBeUndefined();
+    expect(refused("http://ws.test/plugin-frame/jira/logo.png")).toBeUndefined();
+  });
+
+  test("refuses the rest, saying why", () => {
+    // Another plugin's, or ws's own: not this page's to show.
+    expect(refused("http://ws.test/plugins/sketch/a.png")).toMatch(/under \/plugins\/jira\//);
+    expect(refused("http://ws.test/api/workspace")).toBeDefined();
+    expect(refused("http://ws.test/plugins/jirafake/a.png")).toBeDefined();
+    // What ws's page can't load, or isn't a picture.
+    expect(refused("http://example.com/a.png")).toBeDefined();
+    expect(refused("data:text/html,<p>")).toMatch(/data:image/);
+    expect(refused("blob:http://ws.test/5f1c")).toMatch(/blob:/);
+    expect(refused("javascript:alert(1)")).toBeDefined();
+    expect(refused("a.png")).toMatch(/full address/);
   });
 });

@@ -214,7 +214,7 @@ The class makes it cover the frame, in ws's scrim, fading in as ws's own does. W
 
 Some of what an app wants shown is ws's to know, or ws's to do, and nothing an app draws can go past the edge of its frame. So ws has UIs of its own that an app asks for, under `ws.ui`. ws defines each: what it draws, how it behaves, what it does. The app says which, what it's about, and what on the page it's asked from, and ws draws it there, over the frame, as if the frame had no edge. It's not a way to describe a UI of the app's for ws to draw: an app draws its own in its frame.
 
-There's one so far, **a ref's card**. A ref drawn as one has it already. For a name that isn't a link, such as words on a canvas, ask as the pointer comes, and close as it goes:
+The first is **a ref's card**. A ref drawn as one has it already. For a name that isn't a link, such as words on a canvas, ask as the pointer comes, and close as it goes:
 
 ```ts
 const [[found]] = await ws.findRefs([label.text]);
@@ -239,6 +239,14 @@ const saved = await ws.ui.saveThing(button, { kind: "sketch", ref: "sketch-12", 
 ```
 
 Each resolves with what was done (`ThingSaved`: the thing as it is in its repo now, and whether anything changed there), or with nothing where it wasn't. ws asks the plugin for the thing itself and tells it where it is, so the app passes nothing on.
+
+A picture opens in ws's viewer, over the whole window, to look around in. Mark it, and a click does it, before any link it's in is followed:
+
+```tsx
+<a href={file.url}><img data-ws-view src={file.url} alt={file.name} /></a>
+```
+
+`data-ws-view` goes on the `<img>`, or on what holds one; its value, if it has one, is what the picture's of, and the `alt` is otherwise. A click with a key held is the link's, and where ws can't show it (a ws from before the viewer, an address it can't show from), the click is left to the page. From code, `ws.ui.viewPicture(src, { title })`: `src` is as an `<img>`'s, relative to the page, on the web (`https:`), `data:image/…`, or the plugin's own on ws's. Anything else (elsewhere on ws, a `blob:`) throws a `TypeError`.
 
 Each UI is a method of its own, and all of them are made of `ws.ui.open`, which asks for one by its name:
 
