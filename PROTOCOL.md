@@ -363,6 +363,7 @@ Each has a name, what it's given, and what comes of it. They're `Uis` in `@withw
 | `ref-card` | `ref` | None | [A ref's card](#a-refs-card), by the ref's words |
 | `thing-promote` | `kind`, `ref`, `title` | Where the thing is now, or none | [Putting a thing in a repo](#a-thing-in-a-repo), by the button that asked |
 | `thing-save` | `kind`, `ref`, `title` | The thing as it is there now, or none | [Saving a thing to its repo](#a-thing-in-a-repo), by the button pressed |
+| `picture` | `src`, `title` | None | [A picture in ws's viewer](#a-picture-in-wss-viewer), over the whole window |
 
 ### A ref's card
 
@@ -380,6 +381,20 @@ In ws, a ref has a card: more about what's named (a file's lines, where a missio
 - **One card is up at a time.**
 - **ws takes it down when it moves the app** (`ws:navigate`), as well as when the page goes.
 - **A ref ws can't read has no card.**
+
+### A picture in ws's viewer
+
+A picture in ws opens over the whole window, to look around in: drag moves it, the wheel zooms in where the pointer is, esc closes it. A frame can only draw one as big as itself, so ws shows a page's in its own viewer.
+
+| | |
+|---|---|
+| `with.src` | The picture's full address |
+| `with.title` | Optional. What it's of, for the viewer to say |
+| `box` | Optional. What was clicked |
+
+- **It's given an address, never markup.** ws draws it as an `<img>` in its own page, where a picture can't run anything, whatever it is. So the address is one ws's page may show a picture from: on the web (`https:`), the picture itself (`data:image/…`), or the plugin's own on ws's origin, under its HTTP (`plugin.api`) or its pages' files (`plugin.base`). Anything else is an `error`: elsewhere on ws, `http:` on the web, `blob:` (give it as `data:` instead). `pictureRefused` in `@withworkspace/ui-lib/protocol` says which, and why.
+- **It's ws's until the person closes it.** It's closed with no result. The page may take it back with `ws:ui-close`.
+- **The keys are the viewer's while it's up:** ws takes the focus from the frame, and gives it back as it closes.
 
 ### A thing in a repo
 

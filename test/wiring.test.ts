@@ -295,6 +295,51 @@ describe("links", () => {
   });
 });
 
+describe("a picture drawn to be viewed", () => {
+  // The pictures ws has been asked to show.
+  const shown = async (ws: Parameters<typeof settled>[0], host: Parameters<typeof settled>[1]) => {
+    await settled(ws, host);
+    return host.sent.flatMap((m) => (m.type === "ws:ui-open" && m.ui === "picture" ? [m.with] : []));
+  };
+
+  test("opens in ws's viewer on a click, by its full address, with what it's of", async () => {
+    const { add, click, host, ws } = await page();
+    expect(click(add('<img data-ws-view src="/plugins/fake/a.png" alt="Login page">'))).toBe(true);
+    expect(click(add('<figure data-ws-view="The flow"><img src="b.png"></figure>'))).toBe(true);
+    // A thumbnail, whose whole picture is elsewhere.
+    expect(click(add('<img data-ws-view data-ws-view-src="/plugins/fake/c.png" src="/plugins/fake/c.png?thumbnail" alt="c.png">'))).toBe(true);
+
+    expect(await shown(ws, host)).toEqual([
+      { src: "http://ws.test/plugins/fake/a.png", title: "Login page" },
+      { src: "http://ws.test/plugin-frame/fake/b.png", title: "The flow" },
+      { src: "http://ws.test/plugins/fake/c.png", title: "c.png" },
+    ]);
+  });
+
+  test("in a link, it's viewed rather than followed; with a key held, the link's followed", async () => {
+    const { add, click, host, ws } = await page();
+    const link = add('<a href="/plugins/fake/files/1"><img data-ws-view src="/plugins/fake/files/1" alt="a.png"></a>');
+
+    expect(click(link.firstElementChild!)).toBe(true);
+    expect(click(link.firstElementChild!, { metaKey: true })).toBe(false);
+
+    expect(await shown(ws, host)).toHaveLength(1);
+  });
+
+  test("is left to the page where ws can't show it: no viewer, no picture yet, or not one it may show", async () => {
+    const old = await page({ uis: ["ref-card"] });
+    expect(old.click(old.add('<img data-ws-view src="https://example.com/a.png">'))).toBe(false);
+    expect(await shown(old.ws, old.host)).toEqual([]);
+
+    const { add, click, host, ws } = await page();
+    // Its address is still to be set (data-src), or isn't one ws may show.
+    expect(click(add('<img data-ws-view data-src="/plugins/fake/a.png">'))).toBe(false);
+    expect(click(add('<img data-ws-view src="http://example.com/a.png">'))).toBe(false);
+    expect(click(add('<img data-ws-view src="/api/workspace">'))).toBe(false);
+    expect(await shown(ws, host)).toEqual([]);
+  });
+});
+
 describe("a press elsewhere", () => {
   test("dismissOutside runs for a press in the page outside the element, and not for one in it", async () => {
     const { add, pressOn, ws } = await page();

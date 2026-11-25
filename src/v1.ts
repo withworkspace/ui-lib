@@ -246,6 +246,52 @@ export interface Uis {
     with: ThingAsked;
     result: ThingSaved | undefined;
   };
+  /**
+   * A picture over the whole of ws's window, to look around in: ws's own
+   * viewer, as a picture in ws's own pages opens in. Drag moves it, the
+   * wheel zooms in where the pointer is, esc closes it. It's given the
+   * picture's address, which pictureRefused says what can be. Nothing
+   * comes of it: it resolves as the person closes it.
+   */
+  picture: {
+    with: {
+      /**
+       * The picture's full address: on the web (https:), the picture
+       * itself (data:image/…), or the plugin's own, on ws's (its HTTP, or
+       * its pages' files).
+       */
+      src: string;
+      /** What it's of, for the viewer to say. */
+      title?: string;
+    };
+    result: undefined;
+  };
+}
+
+/**
+ * pictureRefused is why a picture's address isn't one ws will show, if it
+ * isn't: a sentence for whoever's writing the page. A picture is drawn
+ * in ws's own page, so its address is one ws's page may show a picture
+ * from, and one that's on ws's is the plugin's own. Only a picture's
+ * address is ever given, never its markup: a picture loaded by its
+ * address can't run anything, whatever it is.
+ *
+ * src is the full address; origin is ws's (the page's), and plugin is
+ * where the plugin's own are on it.
+ */
+export function pictureRefused(src: string, origin: string, plugin: Pick<Plugin, "api" | "base">): string | undefined {
+  let url: URL;
+  try {
+    url = new URL(src);
+  } catch {
+    return `picture is given its full address, not "${src}".`;
+  }
+  if (url.protocol === "https:") return undefined;
+  if (url.protocol === "data:") return /^data:image\//i.test(src) ? undefined : "picture is given a data: address only of a picture: data:image/….";
+  const own = (at: string) => url.pathname.startsWith(`${at}/`);
+  if (url.origin === origin && (own(plugin.api) || own(plugin.base))) return undefined;
+  if (url.protocol === "blob:") return "picture can't be given a blob: address: ws's page can't read it. Give it as data: instead.";
+  return `picture is given an address on the web (https:), the picture itself (data:image/…), or the plugin's own on ws's (under ${plugin.api}/ or ${plugin.base}/), not ${url.href}.`;
 }
 
 /** ThingAsked is one of the plugin's own things, as a UI about it is given it. */
@@ -285,7 +331,7 @@ export interface ThingSaved {
 export type UiName = keyof Uis;
 
 /** The names of the UIs this release knows of. */
-export const UI_NAMES: readonly UiName[] = ["ref-card", "thing-promote", "thing-save"];
+export const UI_NAMES: readonly UiName[] = ["ref-card", "thing-promote", "thing-save", "picture"];
 
 /**
  * UiOpen asks ws for one of its own UIs, drawn by ws over the frame and

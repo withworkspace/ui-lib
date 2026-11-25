@@ -427,6 +427,33 @@ describe("ws's own UI, asked for by the page", () => {
     await expect(old.ws.ui.saveThing(box, thing)).rejects.toThrow("This ws has no UI called thing-save. Update ws.");
   });
 
+  test("ui.viewPicture asks ws to show a picture in its viewer, by its full address", async () => {
+    const { host, ws } = await connected();
+
+    const viewing = ws.ui.viewPicture("https://example.com/a.png", { title: "A", target: box });
+    expect(await host.next("ws:ui-open")).toEqual({ type: "ws:ui-open", id: 1, ui: "picture", box, with: { src: "https://example.com/a.png", title: "A" } });
+    // Closed by the person: nothing came of it.
+    host.closeUi(1);
+    expect(await viewing).toBeUndefined();
+
+    // The picture itself is a picture's address too; a title isn't needed.
+    ws.ui.viewPicture("data:image/png;base64,iVBORw0KGgo=");
+    expect(await host.next("ws:ui-open")).toEqual({ type: "ws:ui-open", id: 2, ui: "picture", with: { src: "data:image/png;base64,iVBORw0KGgo=" } });
+
+    // Only an address ws can show a picture from: never markup, nor what
+    // ws's page can't load.
+    expect(() => ws.ui.viewPicture("data:text/html,<script>")).toThrow(TypeError);
+    expect(() => ws.ui.viewPicture("blob:http://ws.test/1")).toThrow("Give it as data: instead");
+    expect(() => ws.ui.viewPicture("http://example.com/a.png")).toThrow(TypeError);
+    // With no page to be relative to, an address is a full one.
+    expect(() => ws.ui.viewPicture("a.png")).toThrow("its full address");
+
+    // A ws from before it had a viewer: what's awaited fails at once.
+    const old = await connected({ uis: ["ref-card"] });
+    expect(old.ws.ui.has("picture")).toBe(false);
+    await expect(old.ws.ui.viewPicture("https://example.com/a.png")).rejects.toThrow("This ws has no UI called picture. Update ws.");
+  });
+
   test("closing the client settles what's still open as undefined, and asks for nothing more", async () => {
     const { host, ws } = await connected();
     const card = ws.ui.open("ref-card", { with: { ref: "a" } });
