@@ -233,7 +233,8 @@ export interface Ui {
    * pages' files): anything else there, and a blob:, is a TypeError.
    * target is what was clicked, if anything was. Awaited, it settles as
    * the person closes it. An <img> with data-ws-view opens in it on a
-   * click, with nothing called.
+   * click, with nothing called (data-ws-view-src, where what's drawn is a
+   * thumbnail, is the whole picture's address).
    */
   viewPicture(src: string, options?: { title?: string; target?: Element | Box }): UiOpened<undefined>;
 }
@@ -592,7 +593,8 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
   const viewClicked = (el: Element) => {
     if (!hasUi.has("picture")) return false;
     const img = el.tagName === "IMG" ? (el as HTMLImageElement) : el.querySelector("img");
-    const src = img && (img.currentSrc || img.getAttribute("src"));
+    // What's drawn may be a thumbnail: data-ws-view-src is the whole picture.
+    const src = el.getAttribute("data-ws-view-src") || (img && (img.currentSrc || img.getAttribute("src")));
     if (!img || !src) return false;
     const title = el.getAttribute("data-ws-view") || img.getAttribute("alt") || img.getAttribute("title") || undefined;
     try {

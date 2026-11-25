@@ -306,10 +306,13 @@ describe("a picture drawn to be viewed", () => {
     const { add, click, host, ws } = await page();
     expect(click(add('<img data-ws-view src="/plugins/fake/a.png" alt="Login page">'))).toBe(true);
     expect(click(add('<figure data-ws-view="The flow"><img src="b.png"></figure>'))).toBe(true);
+    // A thumbnail, whose whole picture is elsewhere.
+    expect(click(add('<img data-ws-view data-ws-view-src="/plugins/fake/c.png" src="/plugins/fake/c.png?thumbnail" alt="c.png">'))).toBe(true);
 
     expect(await shown(ws, host)).toEqual([
       { src: "http://ws.test/plugins/fake/a.png", title: "Login page" },
       { src: "http://ws.test/plugin-frame/fake/b.png", title: "The flow" },
+      { src: "http://ws.test/plugins/fake/c.png", title: "c.png" },
     ]);
   });
 

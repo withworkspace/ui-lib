@@ -246,7 +246,7 @@ A picture opens in ws's viewer, over the whole window, to look around in. Mark i
 <a href={file.url}><img data-ws-view src={file.url} alt={file.name} /></a>
 ```
 
-`data-ws-view` goes on the `<img>`, or on what holds one; its value, if it has one, is what the picture's of, and the `alt` is otherwise. A click with a key held is the link's, and where ws can't show it (a ws from before the viewer, an address it can't show from), the click is left to the page. From code, `ws.ui.viewPicture(src, { title })`: `src` is as an `<img>`'s, relative to the page, on the web (`https:`), `data:image/…`, or the plugin's own on ws's. Anything else (elsewhere on ws, a `blob:`) throws a `TypeError`.
+`data-ws-view` goes on the `<img>`, or on what holds one; its value, if it has one, is what the picture's of, and the `alt` is otherwise. Where what's drawn is a thumbnail, `data-ws-view-src` is the whole picture's address. A click with a key held is the link's, and where ws can't show it (a ws from before the viewer, an address it can't show from), the click is left to the page. From code, `ws.ui.viewPicture(src, { title })`: `src` is as an `<img>`'s, relative to the page, on the web (`https:`), `data:image/…`, or the plugin's own on ws's. Anything else (elsewhere on ws, a `blob:`) throws a `TypeError`.
 
 Each UI is a method of its own, and all of them are made of `ws.ui.open`, which asks for one by its name:
 
