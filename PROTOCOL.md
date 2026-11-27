@@ -179,6 +179,8 @@ After the welcome. Each is `{ "type": "ws:…", … }` on the port.
 | `ws:conversation-open` | page | `message`, `context`, `as` | Open the conversation, with a message said as the person's |
 | `ws:conversation-close` | page | | Close it |
 | `ws:conversation-state` | ws | `open`, `as`, `working` | Where the conversation is now, each time that changes |
+| `ws:menu` | page | `id`, `x`, `y`, `ref`, `items` | Open ws's menu for a right click at `x`, `y` in the frame's viewport: the page's `items` first, then what ws does to `ref`. ([ws's menu](#wss-menu)) |
+| `ws:menu-closed` | ws | `id`, `item` | The menu of that `id` was put away: `item` is the page's item chosen, if one was |
 
 A `path` in the plugin (`ws:navigate`'s, the welcome's) starts with `/`, has no base, and keeps its query. A `ws:go`'s is ws's address, with its query.
 
@@ -433,6 +435,22 @@ ws's Find starts from what the page is of. ws reads that from the page's address
 - **The latest said is what's open.** The package keeps a stack, so a panel and then a dialog over it each push and pop their own, and it says only the top when it changes. ws keeps no stack: it takes what it's told.
 - **ws forgets it when the page goes:** the frame loaded again, another page connected, or ws went somewhere outside the plugin. A move within the plugin (`ws:navigate`) isn't one: the page is still there, and what it said stands until it says otherwise, so a panel open over a list stays what's open while a filter changes the address.
 - **A name ws can't read is as none:** ws goes by the address.
+
+## ws's menu
+
+A right click in the page is ws's, as one in ws's own pages is: on a ref, ws's menu holds what ws does to the thing (Find's actions on it, and the person's automations' actions on it), and the page can put its own items first.
+
+```json
+{ "type": "ws:menu", "id": 3, "x": 212, "y": 88, "ref": "THING-2", "items": [{ "id": "rename", "label": "Rename", "icon": "pencil" }, { "id": "drop", "label": "Throw away", "danger": true }] }
+```
+
+- **Where:** `x` and `y` are in the frame's own viewport, as a `MouseEvent`'s `clientX` and `clientY`. ws adds where the frame is, and opens its menu there, over the frame's edge if it has to.
+- **`ref`** is one of ws's names (`THING-2`, `demo#12`, a mission's slug), as `ws:refs` found it, or none. ws's items for it are ws's to say and do: the page isn't told which was chosen.
+- **`items`** are the page's own, in order, each an `id` of the page's, its `label`, a name of ws's icons, and whether it's a `danger` (can't be taken back) or `disabled`.
+- **Closed:** `ws:menu-closed` says the menu of that `id` was put away, once, with `item` the page's own item chosen, or none (one of ws's was, or the person pressed elsewhere). A new `ws:menu` puts away the one that's open, which is said too.
+- **A ws from before menus** doesn't say `menus: true` in its welcome; a page there leaves the browser's menu be.
+
+The client opens it by itself for a right click on a ref (`data-ws-ref`), and on anything its app adds items for. One on selected words, in a text box, or one the app's own handler has taken (`preventDefault`) is left alone.
 
 ## The chrome's layout
 

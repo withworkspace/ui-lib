@@ -210,6 +210,18 @@ useEffect(() => (open ? ws.dismissOutside([button.current!, menu.current!], () =
 
 The class makes it cover the frame, in ws's scrim, fading in as ws's own does. Where the dialog sits in it is the app's to style. There's nothing to call, and nothing of this package's in it: ws watches the page for the class, so both halves come and go in the same frame. A press on ws's dimmed side comes as any press in ws does, so `dismissOutside(dialog, close)` closes on either half. ws's keys and back still work while it's dimmed: it isn't a lock. [`PROTOCOL.md`](PROTOCOL.md#the-frames-edge) has the rest.
 
+### ws's menu
+
+A right click is ws's, as it is in ws's own pages. On a ref (anything with `data-ws-ref`: what `markRefs` draws, or your own), ws's menu opens with what ws does to it: what Find does to it, and the person's automations' actions on it. Your app can put its own entries first, for any right click:
+
+```ts
+const stop = ws.ui.onMenu((target, ref) =>
+  target.closest(".card") ? [{ label: "Rename", icon: "pencil", run: () => rename(ref) }, { label: "Throw away", danger: true, run: () => drop(ref) }] : undefined,
+);
+```
+
+A right click that's on a ref, or that something gives entries for, opens ws's menu in place of the browser's; the rest are left to the browser, as are selected words and text boxes, and any your own `contextmenu` handler `preventDefault`s. For what's drawn without elements (a canvas), open it yourself: `await ws.ui.menu(event, { ref, entries })`. It settles as the menu's put away, the entry chosen run by then; it's `false` at once in a ws from before menus, for you to show your own.
+
 ### ws's own UI
 
 Some of what an app wants shown is ws's to know, or ws's to do, and nothing an app draws can go past the edge of its frame. So ws has UIs of its own that an app asks for, under `ws.ui`. ws defines each: what it draws, how it behaves, what it does. The app says which, what it's about, and what on the page it's asked from, and ws draws it there, over the frame, as if the frame had no edge. It's not a way to describe a UI of the app's for ws to draw: an app draws its own in its frame.
