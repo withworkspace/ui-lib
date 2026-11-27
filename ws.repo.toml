@@ -1,0 +1,14 @@
+[capsule]
+after_create = "npm ci"
+
+[run.task.test]
+display_name = "Tests"
+description = "ui-lib's tests (vitest)"
+command = "npm test"
+timeout = "10m"
+
+[run.task.typecheck]
+display_name = "Typecheck"
+description = "tsc over ui-lib"
+command = "npm run typecheck"
+timeout = "10m"
