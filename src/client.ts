@@ -237,6 +237,41 @@ export interface Ui {
    * thumbnail, is the whole picture's address).
    */
   viewPicture(src: string, options?: { title?: string; target?: Element | Box }): UiOpened<undefined>;
+  /**
+   * menu opens ws's menu where the page was right clicked: at the event
+   * (which it stops the browser's menu for), or a point in the frame's
+   * viewport. It holds the page's entries first, then what ws does to
+   * ref, if it's one of ws's names: as a row of ws's own pages has it,
+   * the person's automations' actions on it among them. Awaited, it's
+   * true once the menu's put away, an entry of the page's run by then if
+   * one was chosen; false at once from a ws that opens no menus, for the
+   * page to show its own. A right click on a ref, or where onMenu gives
+   * entries, opens it with nothing called: this is for what's drawn
+   * otherwise (a canvas), or a menu from a button.
+   */
+  menu(at: MouseEvent | { x: number; y: number }, options?: { ref?: string; entries?: MenuEntry[] }): Promise<boolean>;
+  /**
+   * onMenu adds to ws's menu for a right click anywhere in the page: given
+   * what was clicked, and the ref it's in (if it's in one), it gives the
+   * page's entries for it, or none. A right click that has a ref or any
+   * entries opens ws's menu in place of the browser's; one with neither
+   * (and one on selected words, or in a text box) is left to the browser.
+   * It returns what takes it away.
+   */
+  onMenu(provide: (target: Element, ref: string | undefined) => readonly MenuEntry[] | undefined): () => void;
+}
+
+/**
+ * MenuEntry is one of the page's own entries in ws's menu: its words, a
+ * name of ws's icons, and what choosing it does. danger draws it as one
+ * that can't be taken back; disabled shows it, not to be chosen.
+ */
+export interface MenuEntry {
+  label: string;
+  icon?: string;
+  danger?: boolean;
+  disabled?: boolean;
+  run(): void;
 }
 
 /** Client is the app's handle on ws, once they've shaken hands. */
@@ -605,8 +640,62 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
     return true;
   };
 
+  // ws's menu, for a right click: open (by id) till ws says it's put away.
+  const hasMenus = welcome.menus === true;
+  const menus = new Map<number, (item?: string) => void>();
+  let menuAskings = 0;
+  const providers = new Set<(target: Element, ref: string | undefined) => readonly MenuEntry[] | undefined>();
+  const menu = (at: MouseEvent | { x: number; y: number }, options: { ref?: string; entries?: readonly MenuEntry[] } = {}): Promise<boolean> => {
+    if (closed || !hasMenus) return Promise.resolve(false);
+    const entries = options.entries ?? [];
+    for (const e of entries) {
+      if (!e?.label || typeof e.run !== "function") throw new TypeError('ui.menu(at, { entries }): an entry is its words and what choosing it does, { label: "Rename", run() {…} }.');
+    }
+    let x: number;
+    let y: number;
+    if ("clientX" in at) {
+      at.preventDefault();
+      x = at.clientX;
+      y = at.clientY;
+    } else ({ x, y } = at);
+    const items: V1.MenuItem[] = entries.map((e, i) => ({
+      id: String(i),
+      label: e.label,
+      ...(e.icon ? { icon: e.icon } : {}),
+      ...(e.danger ? { danger: true } : {}),
+      ...(e.disabled ? { disabled: true } : {}),
+    }));
+    const id = ++menuAskings;
+    return new Promise<boolean>((resolve) => {
+      menus.set(id, (item) => {
+        if (item !== undefined) entries[Number(item)]?.run();
+        resolve(true);
+      });
+      send({ type: "ws:menu", id, x, y, ...(options.ref ? { ref: options.ref } : {}), ...(items.length ? { items } : {}) });
+    });
+  };
+  const onMenu = (provide: (target: Element, ref: string | undefined) => readonly MenuEntry[] | undefined) => {
+    providers.add(provide);
+    return () => {
+      providers.delete(provide);
+    };
+  };
+  // A right click: ws's menu, where there's a ref or the page has entries
+  // for it.
+  const menuFor = (e: MouseEvent) => {
+    if (!hasMenus || e.defaultPrevented || !doc) return;
+    const target = e.target as Partial<Element> | null;
+    if (!target?.closest || isTypedIn(e.target)) return;
+    // Words selected are the browser's to copy.
+    if (doc.getSelection?.()?.toString()) return;
+    const ref = target.closest("[data-ws-ref]")?.getAttribute("data-ws-ref") || undefined;
+    const entries = [...providers].flatMap((p) => p(target as Element, ref) ?? []);
+    if (!ref && !entries.length) return;
+    void menu(e, { ref, entries });
+  };
+
   if (doc) applyTheme(doc, theme);
-  const wired = doc ? wire(doc, welcome, send, open, refCard, viewClicked) : undefined;
+  const wired = doc ? wire(doc, welcome, send, open, refCard, viewClicked, menuFor) : undefined;
 
   port.onmessage = (e: MessageEvent) => {
     const m: unknown = e.data;
@@ -656,6 +745,12 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
         status = m.as === undefined ? { open: m.open, working: m.working } : { open: m.open, as: m.as, working: m.working };
         for (const fn of [...conversed]) fn(status);
         break;
+      case "ws:menu-closed": {
+        const done = menus.get(m.id);
+        menus.delete(m.id);
+        done?.(m.item);
+        break;
+      }
     }
   };
 
@@ -726,7 +821,7 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
         tellHere();
       };
     },
-    ui: { has: (name) => hasUi.has(name), open: openUi, refCard, promoteThing, saveThing, viewPicture },
+    ui: { has: (name) => hasUi.has(name), open: openUi, refCard, promoteThing, saveThing, viewPicture, menu, onMenu },
     setChromeLayout(mode) {
       if (mode !== "expanded" && mode !== "standard") throw new TypeError(`setChromeLayout("${String(mode)}"): the layout is "expanded" or "standard".`);
       if (mode === layout || closed) return;
@@ -791,6 +886,9 @@ function client(port: MessagePort, welcome: V1.Welcome, doc: Document | undefine
       // ws takes down what was asked for when the page goes: it isn't told.
       for (const ui of [...uis.values()]) ui.done(undefined);
       uis.clear();
+      for (const done of [...menus.values()]) done(undefined);
+      menus.clear();
+      providers.clear();
       port.onmessage = null;
       port.close();
     },
@@ -816,6 +914,7 @@ function wire(
   open: (address: string) => void,
   refCard: (target: Element, ref: string) => () => void,
   viewClicked: (el: Element) => boolean,
+  menuFor: (e: MouseEvent) => void,
 ): { stop(): void; left(): void } {
   const { keys } = welcome;
   let leaderAt = 0;
@@ -926,6 +1025,9 @@ function wire(
   doc.addEventListener("focusout", onBlur);
   doc.addEventListener("scroll", onScroll, true);
   doc.addEventListener("pointerdown", left, true);
+  // A right click is heard last, so the app's own handler can have it
+  // first (and preventDefault for a menu of its own).
+  doc.addEventListener("contextmenu", menuFor);
   return {
     stop() {
       doc.removeEventListener("keydown", onKey);
@@ -936,6 +1038,7 @@ function wire(
       doc.removeEventListener("focusout", onBlur);
       doc.removeEventListener("scroll", onScroll, true);
       doc.removeEventListener("pointerdown", left, true);
+      doc.removeEventListener("contextmenu", menuFor);
     },
     left,
   };

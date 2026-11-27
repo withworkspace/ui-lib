@@ -48,6 +48,11 @@ export interface FakeHostOptions {
    * welcome doesn't say it does, and the page says nothing of them.
    */
   conversations?: boolean;
+  /**
+   * false is a ws from before it opened its menu for a right click: its
+   * welcome doesn't say it does, and the page leaves the browser's be.
+   */
+  menus?: boolean;
 }
 
 /** FindRefs is the refs in a run of text, in order, none over another. */
@@ -131,6 +136,11 @@ export interface FakeHost {
   /** conversation is what the page last said of conversations about it (ws:conversation), or nothing. */
   readonly conversation: Omit<V1.Conversation, "type"> | undefined;
   /**
+   * menu is ws's menu the page asked for last (ws:menu), while it's
+   * open: where, the ref, and the page's items.
+   */
+  readonly menu: Omit<V1.Menu, "type"> | undefined;
+  /**
    * next resolves with the next message of this type from the page that no
    * earlier next() was given, whether it has arrived already or is still
    * to come. It rejects if none comes within the timeout (1000ms by
@@ -157,6 +167,11 @@ export interface FakeHost {
   refsChanged(refs?: FindRefs): void;
   /** outside sends ws:outside: a press landed in ws, outside the frame. */
   outside(): void;
+  /**
+   * closeMenu sends ws:menu-closed for the menu that's open: put away,
+   * with the page's item that was chosen (its id), or none.
+   */
+  closeMenu(item?: string): void;
   /**
    * closeUi sends ws:ui-closed: ws closed a UI the page asked for,
    * dismissed, or done with what came of it (result).
@@ -228,6 +243,8 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
   let chromeLayout: V1.ChromeMode = "standard";
   let conversation: Omit<V1.Conversation, "type"> | undefined;
   const conversations = options.conversations ?? true;
+  const menus = options.menus ?? true;
+  let menu: Omit<V1.Menu, "type"> | undefined;
   let theme: V1.Theme = { scheme: options.scheme ?? "light", vars: { ...plausible(options.scheme ?? "light"), ...options.vars } };
   let refs: FindRefs | false = options.refs ?? (() => []);
 
@@ -264,6 +281,12 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
     }
     if (m.type === "ws:ui-close") uis = uis.filter((u) => u.id !== m.id);
     if (m.type === "ws:chrome-layout") chromeLayout = m.mode;
+    // As ws: a new menu puts away the one that's open.
+    if (m.type === "ws:menu" && menus) {
+      if (menu) say({ type: "ws:menu-closed", id: menu.id });
+      const { type: _, ...asked } = m;
+      menu = asked;
+    }
     if (m.type === "ws:conversation") {
       const { type: _, ...said } = m;
       conversation = said;
@@ -309,6 +332,7 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
         ...(refs ? { refs: true } : {}),
         ...(has ? { uis: [...has] } : {}),
         ...(conversations ? { conversations: true } : {}),
+        ...(menus ? { menus: true } : {}),
       });
     },
   };
@@ -331,6 +355,9 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
     },
     get conversation() {
       return conversation;
+    },
+    get menu() {
+      return menu;
     },
     next(type, { timeout = 1000 } = {}) {
       type Wanted = Extract<V1.PageMessage, { type: typeof type }>;
@@ -370,6 +397,12 @@ export function fakeHost(options: FakeHostOptions = {}): FakeHost {
     },
     outside() {
       say({ type: "ws:outside" });
+    },
+    closeMenu(item) {
+      if (!menu) throw new Error("No menu is open: the page hasn't asked for one (ws:menu).");
+      const id = menu.id;
+      menu = undefined;
+      say(item === undefined ? { type: "ws:menu-closed", id } : { type: "ws:menu-closed", id, item });
     },
     closeUi(id, result) {
       uis = uis.filter((u) => u.id !== id);

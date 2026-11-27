@@ -91,6 +91,12 @@ export interface Welcome {
    * did doesn't say so, and a page there shows no ask of its own.
    */
   conversations?: boolean;
+  /**
+   * ws opens its menu for a right click in the page: it answers ws:menu.
+   * A ws from before it did doesn't say so, and a page there leaves the
+   * browser's own menu be.
+   */
+  menus?: boolean;
 }
 
 /**
@@ -184,6 +190,40 @@ export interface Refs {
 export interface Here {
   type: "ws:here";
   name?: string;
+}
+
+/**
+ * Menu asks for ws's menu where the page was right clicked: at x, y in the
+ * frame's own viewport (as a MouseEvent's clientX and clientY), ws drawing
+ * it as if the frame had no edge. It holds the page's own items first, in
+ * order, then what ws does to ref, the thing that was clicked on if it's
+ * one of ws's names (a ref drawn by markRefs, data-ws-ref), as a row of
+ * ws's own pages has it: your automations' actions on it among them. A
+ * page item chosen is said back (ws:menu-closed); one of ws's is ws's to
+ * do. A new ws:menu puts away one that's open.
+ */
+export interface Menu {
+  type: "ws:menu";
+  /** The page's number for it, which ws:menu-closed has. */
+  id: number;
+  x: number;
+  y: number;
+  ref?: string;
+  items?: MenuItem[];
+}
+
+/**
+ * MenuItem is one of the page's own items in ws's menu: the page's id for
+ * it, its words, and a name of ws's icons (as ws:here's names are ws's).
+ * danger is drawn as one that can't be taken back; disabled is shown and
+ * can't be chosen.
+ */
+export interface MenuItem {
+  id: string;
+  label: string;
+  icon?: string;
+  danger?: boolean;
+  disabled?: boolean;
 }
 
 /**
@@ -527,10 +567,21 @@ export interface ConversationState {
   working: boolean;
 }
 
+/**
+ * MenuClosed is ws's menu put away: with item, the page's own item that
+ * was chosen (its id); without, one of ws's was, or none was. It's said
+ * once for each ws:menu, a menu put away by another's opening too.
+ */
+export interface MenuClosed {
+  type: "ws:menu-closed";
+  id: number;
+  item?: string;
+}
+
 /** What a page sends on the port. */
-export type PageMessage = Go | Title | Key | Refs | UiOpen | UiClose | Here | ChromeLayout | Conversation | ConversationOpen | ConversationClose;
+export type PageMessage = Go | Title | Key | Refs | UiOpen | UiClose | Here | ChromeLayout | Conversation | ConversationOpen | ConversationClose | Menu;
 /** What ws sends on the port. */
-export type HostMessage = Welcome | Refuse | Navigate | ThemeChanged | Changed | RefsFound | RefsChanged | Outside | UiClosed | ConversationState;
+export type HostMessage = Welcome | Refuse | Navigate | ThemeChanged | Changed | RefsFound | RefsChanged | Outside | UiClosed | ConversationState | MenuClosed;
 
 // The guards check a message's shape: that it's one of this version's,
 // with each field it must have. A message that fails is dropped, which is
@@ -560,7 +611,8 @@ export function isWelcome(m: unknown): m is Welcome {
     isKeys(m.keys) &&
     (m.refs === undefined || typeof m.refs === "boolean") &&
     (m.uis === undefined || isStrings(m.uis)) &&
-    (m.conversations === undefined || typeof m.conversations === "boolean")
+    (m.conversations === undefined || typeof m.conversations === "boolean") &&
+    (m.menus === undefined || typeof m.menus === "boolean")
   );
 }
 
@@ -611,6 +663,8 @@ export function isPageMessage(m: unknown): m is PageMessage {
       return isIndex(m.id);
     case "ws:here":
       return m.name === undefined || (isString(m.name) && m.name !== "");
+    case "ws:menu":
+      return isIndex(m.id) && typeof m.x === "number" && typeof m.y === "number" && optional(m.ref, isString) && optional(m.items, isMenuItems);
     case "ws:chrome-layout":
       return m.mode === "expanded" || m.mode === "standard";
     case "ws:conversation":
@@ -655,7 +709,25 @@ export function isHostMessage(m: unknown): m is HostMessage {
       return isIndex(m.id) && optional(m.error, isString);
     case "ws:conversation-state":
       return typeof m.open === "boolean" && optional(m.as, isConversationForm) && typeof m.working === "boolean";
+    case "ws:menu-closed":
+      return isIndex(m.id) && optional(m.item, isString);
     default:
       return false;
   }
+}
+
+const isBool = (v: unknown): v is boolean => typeof v === "boolean";
+const isMenuItems = (v: unknown): v is MenuItem[] => Array.isArray(v) && v.every(isMenuItem);
+
+export function isMenuItem(m: unknown): m is MenuItem {
+  return (
+    isRecord(m) &&
+    isString(m.id) &&
+    m.id !== "" &&
+    isString(m.label) &&
+    m.label !== "" &&
+    optional(m.icon, isString) &&
+    optional(m.danger, isBool) &&
+    optional(m.disabled, isBool)
+  );
 }
